@@ -1,0 +1,4 @@
+/mnt/c/Users/iulia/lsm_tree/build/CMakeFiles/lsm.dir
+/mnt/c/Users/iulia/lsm_tree/build/CMakeFiles/test_bloom.dir
+/mnt/c/Users/iulia/lsm_tree/build/CMakeFiles/edit_cache.dir
+/mnt/c/Users/iulia/lsm_tree/build/CMakeFiles/rebuild_cache.dir
