@@ -1,0 +1,677 @@
+= LSM Tree — Software Detail Design
+:toc: left
+:toclevels: 3
+:sectnums:
+:source-highlighter: highlight.js
+:icons: font
+:doctype: article
+:imagesdir: diagrams
+
+== Overview
+
+This document describes the detailed software design of a concurrent Log-Structured Merge Tree (LSM Tree) implemented in C++20. The implementation targets high write throughput with configurable read/space amplification tradeoffs via pluggable compaction strategies.
+
+=== Design Goals
+
+* High write throughput via sequential disk I/O and in-memory buffering
+* Concurrent reads and writes without global locks
+* Pluggable compaction strategies (Leveled, Tiered) for benchmark comparison
+* Durability via Write-Ahead Log (WAL)
+* Bloom filters per SSTable to minimize unnecessary disk reads
+* Block-level LRU cache to accelerate repeated reads
+
+=== RUM Conjecture Tradeoffs
+
+[cols="1,1,1,1", options="header"]
+|===
+| Strategy | Write Amp | Read Amp | Space Amp
+| Leveled  | High      | Low      | Low
+| Tiered   | Low       | High     | High
+| FIFO     | Lowest    | Highest  | Highest
+|===
+
+== Architecture
+
+=== Component Overview
+
+----
+┌─────────────────────────────────────────────────────────┐
+│                        LSMTree                          │
+│  put() / get() / del() / scan() / get_snapshot()       │
+└────────┬──────────┬──────────┬──────────────────────────┘
+         │          │          │
+    ┌────▼───┐  ┌───▼────┐  ┌─▼────────────┐
+    │  WAL   │  │MemTable│  │ LevelManager │
+    └────────┘  └───┬────┘  └──────┬───────┘
+                    │              │ manages
+         ┌──────────▼──┐      ┌────▼──────┐
+         │ConcurrentSkip│     │  SSTable  │
+         │    List      │     │(N per lvl)│
+         └─────────────┘      └─────┬─────┘
+                                    │ owns
+                              ┌─────▼──────┐
+                              │BloomFilter │
+                              │   Block    │
+                              │BlockCache  │
+                              └────────────┘
+
+Background:
+┌──────────────────────────────────────────┐
+│           CompactionScheduler            │
+│  ThreadPool + ICompactionStrategy        │
+│  LeveledCompaction | TieredCompaction    │
+└──────────────────────────────────────────┘
+----
+
+=== Write Path
+
+----
+Client::put(key, value)
+    │
+    ▼
+WAL::append()          ← persisted first, fsync configurable
+    │
+    ▼
+MemTable::insert()     ← ConcurrentSkipList, lock-free
+    │
+    ▼ (when MemTable full)
+MemTable → Immutable   ← atomic swap via shared_ptr
+    │
+    ▼ (background flush thread)
+SSTableBuilder::add()
+SSTableBuilder::finish() → SSTable on disk
+    │
+    ▼
+LevelManager::add_sstable(level=0, sst)
+    │
+    ▼ (triggers compaction if L0 count >= threshold)
+CompactionScheduler::schedule()
+----
+
+=== Read Path
+
+----
+Client::get(key)
+    │
+    ├─▶ MemTable::get()          ← newest data, O(log n)
+    │       hit → return
+    │
+    ├─▶ Immutable MemTables      ← newest first
+    │       hit → return
+    │
+    ├─▶ Level 0 SSTables         ← all files, may overlap
+    │   │   BloomFilter::may_contain() → skip if false
+    │   │   BlockCache::lookup()       → skip disk if cached
+    │   │   SSTable::get()
+    │       hit → return
+    │
+    └─▶ Level 1..N SSTables      ← binary search on key range
+            BloomFilter::may_contain()
+            BlockCache::lookup()
+            SSTable::get()
+----
+
+=== Compaction
+
+----
+LevelManager detects:
+  L0 file count >= level0_compaction_trigger
+  OR
+  Li size > max_bytes_for_level[i]
+        │
+        ▼
+ICompactionStrategy::pick_job(levels) → CompactionJob
+        │
+        ▼
+ThreadPool::submit([job] {
+    open input SSTables
+    MergingIterator over all inputs  ← min-heap merge
+    SSTableBuilder output
+    drop tombstones below oldest snapshot
+    LevelManager::replace(inputs, output)
+    WAL::trim()
+})
+----
+
+== Component Specifications
+
+=== LSMTree
+
+Entry point. Owns all subsystems. Thread-safe for concurrent put/get.
+
+[source,cpp]
+----
+class LSMTree {
+public:
+    explicit LSMTree(Options opts);
+
+    void                    put(std::string_view key, std::string_view value);
+    std::optional<std::string> get(std::string_view key);
+    void                    del(std::string_view key);
+    std::vector<KV>         scan(std::string_view start, std::string_view end);
+    Snapshot                get_snapshot();
+
+private:
+    Options                             opts_;
+    std::unique_ptr<WAL>                wal_;
+    std::atomic<std::shared_ptr<MemTable>> mem_;   // active memtable
+    std::vector<std::shared_ptr<MemTable>> imm_;   // immutable memtables
+    std::shared_mutex                   imm_mu_;
+    std::unique_ptr<LevelManager>       levels_;
+    std::unique_ptr<CompactionScheduler> compaction_;
+};
+----
+
+Key design decisions:
+
+* Active `MemTable` is accessed via `atomic<shared_ptr>` — readers never block writers during flush
+* Immutable memtables held in a vector protected by `shared_mutex` — multiple readers, single writer
+* `get_snapshot()` captures current sequence number for point-in-time reads
+
+---
+
+=== WAL (Write-Ahead Log)
+
+Append-only file. Written before every MemTable insert. Enables recovery after crash.
+
+==== Record Format
+
+----
+┌──────────┬──────────┬──────────┬────────────┬───────────┐
+│ CRC32    │ key_len  │ val_len  │    key     │   value   │
+│ 4 bytes  │ 4 bytes  │ 4 bytes  │  key_len B │ val_len B │
+└──────────┴──────────┴──────────┴────────────┴───────────┘
+----
+
+[source,cpp]
+----
+class WAL {
+public:
+    explicit WAL(std::filesystem::path path);
+
+    void                    append(std::string_view key,
+                                   std::string_view value,
+                                   RecordType type);
+    std::vector<LogEntry>   recover();
+    void                    sync();
+    void                    close();
+
+private:
+    int               fd_;
+    std::filesystem::path path_;
+    std::mutex        mu_;
+};
+----
+
+* `sync_writes` option controls whether `fsync` is called after each append
+* Recovery iterates records, verifies CRC32, replays into fresh MemTable
+* WAL is trimmed after successful SSTable flush
+
+---
+
+=== MemTable
+
+In-memory write buffer. Wraps `ConcurrentSkipList`. Becomes immutable when full.
+
+[source,cpp]
+----
+class MemTable {
+public:
+    void                       insert(std::string_view key,
+                                      std::string_view value,
+                                      SequenceNumber seq);
+    std::optional<std::string> get(std::string_view key,
+                                   SequenceNumber snapshot = kMaxSeq);
+    std::unique_ptr<IIterator> iterator() const;
+    std::size_t                size_bytes() const;
+    bool                       is_full() const;
+
+private:
+    ConcurrentSkipList          skiplist_;
+    std::atomic<std::size_t>    size_{0};
+    const std::size_t           capacity_;
+};
+----
+
+Internal key format: `[user_key | sequence_number (7B) | type (1B)]`
+
+This allows MVCC: multiple versions of the same key coexist, reads filter by sequence number.
+
+---
+
+=== ConcurrentSkipList
+
+Lock-free skiplist. Core of the MemTable. Supports concurrent reads + single writer (or CAS-based multi-writer).
+
+[source,cpp]
+----
+class ConcurrentSkipList {
+public:
+    static constexpr int kMaxHeight = 12;
+
+    void                       insert(std::string_view key, std::string_view value);
+    std::optional<std::string> find(std::string_view key);
+    std::unique_ptr<IIterator> iterator() const;
+
+private:
+    struct Node {
+        std::string key, value;
+        std::array<std::atomic<Node*>, kMaxHeight> next{};
+    };
+
+    std::atomic<Node*>   head_;
+    std::atomic<int>     height_{1};
+    std::atomic<size_t>  size_{0};
+};
+----
+
+* `next` pointers are `atomic<Node*>` — reads traverse without locks
+* Height randomized with geometric distribution (p=0.5)
+* Memory reclamation via epoch-based reclamation or hazard pointers (configurable)
+
+---
+
+=== SSTable
+
+Immutable on-disk sorted file. Written once by `SSTableBuilder`, read-only afterward.
+
+==== File Layout
+
+----
+┌──────────────────────────────┐
+│       Data Block 0           │  4KB default, sorted KV pairs
+├──────────────────────────────┤
+│       Data Block 1           │
+├──────────────────────────────┤
+│           ...                │
+├──────────────────────────────┤
+│       Index Block            │  one entry per data block: (last_key, offset, size)
+├──────────────────────────────┤
+│       Filter Block           │  serialized BloomFilter
+├──────────────────────────────┤
+│         Footer               │  index_offset, filter_offset, magic (8B)
+└──────────────────────────────┘
+----
+
+==== Block Format
+
+----
+┌──────────┬──────────┬────────┬──────────┬───────┬─────────┐
+│ key_len  │ val_len  │  key  │  value   │  ...  │ CRC32   │
+│ 4 bytes  │ 4 bytes  │       │          │       │ 4 bytes │
+└──────────┴──────────┴────────┴──────────┴───────┴─────────┘
+----
+
+[source,cpp]
+----
+class SSTable {
+public:
+    static SSTable             open(std::filesystem::path path,
+                                    std::shared_ptr<BlockCache> cache);
+    std::optional<std::string> get(std::string_view key,
+                                   SequenceNumber snapshot = kMaxSeq);
+    std::unique_ptr<IIterator> iterator() const;
+    std::size_t                file_size() const;
+    std::string_view           smallest_key() const;
+    std::string_view           largest_key() const;
+
+private:
+    int                        fd_;
+    IndexBlock                 index_;
+    BloomFilter                filter_;
+    std::shared_ptr<BlockCache> cache_;
+    Footer                     footer_;
+};
+----
+
+Read path: check BloomFilter → binary search IndexBlock → load Block (cache or disk) → scan Block.
+
+---
+
+=== SSTableBuilder
+
+Writes a new SSTable sequentially to disk.
+
+[source,cpp]
+----
+class SSTableBuilder {
+public:
+    explicit SSTableBuilder(std::filesystem::path path, Options opts);
+
+    void                add(std::string_view key, std::string_view value);
+    SSTable             finish();
+    std::size_t         estimated_size() const;
+
+private:
+    void                flush_block();
+
+    std::filesystem::path     path_;
+    int                       fd_;
+    BlockBuilder              current_block_;
+    std::vector<IndexEntry>   index_entries_;
+    BloomFilter               filter_;
+    Options                   opts_;
+    std::size_t               offset_{0};
+};
+----
+
+---
+
+=== BloomFilter
+
+Probabilistic set membership. One per SSTable. Reduces unnecessary disk reads.
+
+[source,cpp]
+----
+class BloomFilter {
+public:
+    explicit BloomFilter(std::size_t expected_keys, double false_positive_rate);
+
+    void              add(std::string_view key);
+    bool              may_contain(std::string_view key) const;
+    std::vector<byte> serialize() const;
+
+    static BloomFilter deserialize(std::span<const byte> data);
+
+private:
+    std::size_t          num_hashes_;
+    std::vector<uint8_t> bits_;
+
+    static std::size_t optimal_bits(std::size_t n, double p);
+    static std::size_t optimal_hashes(std::size_t bits, std::size_t n);
+};
+----
+
+Parameters derived from expected key count and target false positive rate:
+
+* `bits = -n * ln(p) / ln(2)^2`
+* `k = (bits/n) * ln(2)`
+
+Uses double-hashing (Kirsch-Mitzenmacher): `h_i(x) = h1(x) + i * h2(x)`
+
+---
+
+=== BlockCache
+
+Thread-safe LRU cache for decompressed Blocks. Reduces disk I/O for hot data.
+
+[source,cpp]
+----
+class BlockCache {
+public:
+    explicit BlockCache(std::size_t capacity_bytes);
+
+    std::optional<Block> lookup(uint64_t file_id, uint64_t offset);
+    void                 insert(uint64_t file_id, uint64_t offset, Block block);
+    std::size_t          capacity() const;
+    std::size_t          usage() const;
+
+private:
+    using Key = std::pair<uint64_t, uint64_t>;
+
+    std::list<std::pair<Key, Block>>             lru_;
+    std::unordered_map<Key, decltype(lru_)::iterator,
+                       PairHash>                 table_;
+    std::size_t                                  capacity_;
+    std::size_t                                  usage_{0};
+    std::mutex                                   mu_;
+};
+----
+
+---
+
+=== LevelManager
+
+Maintains the level hierarchy. Thread-safe. Handles key range metadata for L1+ binary search.
+
+[source,cpp]
+----
+class LevelManager {
+public:
+    explicit LevelManager(Options opts);
+
+    void                        add_sstable(int level,
+                                            std::shared_ptr<SSTable> sst);
+    void                        replace(std::vector<std::shared_ptr<SSTable>> inputs,
+                                        std::vector<std::shared_ptr<SSTable>> outputs,
+                                        int output_level);
+    std::vector<std::shared_ptr<SSTable>> get_level(int n) const;
+    CompactionJob               pick_compaction(ICompactionStrategy& strategy);
+    std::size_t                 num_levels() const;
+
+private:
+    std::vector<std::vector<std::shared_ptr<SSTable>>> levels_;
+    mutable std::shared_mutex                          mu_;
+    Options                                            opts_;
+};
+----
+
+* L0 files may overlap — all must be checked on read
+* L1+ files are non-overlapping and sorted — binary search by key range
+
+---
+
+=== Compaction
+
+==== ICompactionStrategy
+
+[source,cpp]
+----
+class ICompactionStrategy {
+public:
+    virtual ~ICompactionStrategy() = default;
+    virtual CompactionJob pick_job(const LevelManager& levels) = 0;
+    virtual double        score(int level,
+                                const LevelManager& levels) const = 0;
+};
+----
+
+==== LeveledCompaction
+
+Maintains size limit per level: `max_bytes[i] = base * multiplier^i`. Picks the level with highest score (`actual_size / max_size`). Selects one SSTable from that level, finds all overlapping files in level+1, merges them.
+
+Write amplification: O(level_count * size_ratio). Read amplification: O(level_count).
+
+==== TieredCompaction
+
+Groups SSTables of similar size into tiers. Compacts a tier when it accumulates `size_ratio` components. Higher write throughput, higher space amplification.
+
+Write amplification: O(log_{size_ratio}(total_size)). Read amplification: O(size_ratio * level_count).
+
+==== CompactionScheduler
+
+[source,cpp]
+----
+class CompactionScheduler {
+public:
+    explicit CompactionScheduler(LevelManager& levels,
+                                 std::unique_ptr<ICompactionStrategy> strategy,
+                                 Options opts);
+
+    void schedule();
+    void cancel_all();
+    void set_strategy(std::unique_ptr<ICompactionStrategy> strategy);
+
+private:
+    void run_compaction(CompactionJob job);
+
+    LevelManager&                        levels_;
+    std::unique_ptr<ICompactionStrategy> strategy_;
+    ThreadPool                           pool_;
+    std::atomic<bool>                    running_{true};
+};
+----
+
+---
+
+=== Iterator Hierarchy
+
+All iterators implement `IIterator`. `MergingIterator` enables unified scan across all data sources.
+
+[source,cpp]
+----
+class IIterator {
+public:
+    virtual ~IIterator() = default;
+    virtual void             seek(std::string_view key) = 0;
+    virtual void             next() = 0;
+    virtual bool             valid() const = 0;
+    virtual std::string_view key()   const = 0;
+    virtual std::string_view value() const = 0;
+};
+----
+
+==== MergingIterator
+
+Min-heap over N child iterators. Always yields the smallest key. On ties (same user key), newer sequence number wins.
+
+[source,cpp]
+----
+class MergingIterator : public IIterator {
+public:
+    explicit MergingIterator(std::vector<std::unique_ptr<IIterator>> children);
+
+    void             seek(std::string_view key) override;
+    void             next() override;
+    bool             valid() const override;
+    std::string_view key()   const override;
+    std::string_view value() const override;
+
+private:
+    std::vector<std::unique_ptr<IIterator>>    children_;
+    std::priority_queue<IIterator*,
+                        std::vector<IIterator*>,
+                        IteratorComparator>    heap_;
+};
+----
+
+---
+
+=== ThreadPool
+
+Uses `std::jthread` (C++20) with `std::stop_token` for cooperative shutdown.
+
+[source,cpp]
+----
+class ThreadPool {
+public:
+    explicit ThreadPool(std::size_t num_threads);
+    ~ThreadPool();
+
+    std::future<void> submit(std::function<void()> task);
+    void              shutdown();
+
+private:
+    void worker(std::stop_token stop);
+
+    std::vector<std::jthread>            workers_;
+    std::deque<std::packaged_task<void()>> queue_;
+    std::mutex                           mu_;
+    std::condition_variable_any          cv_;
+};
+----
+
+---
+
+=== Options
+
+[source,cpp]
+----
+struct Options {
+    std::size_t  memtable_size_bytes       = 64 * 1024 * 1024;  // 64 MB
+    int          num_levels                = 7;
+    int          level0_compaction_trigger = 4;
+    int          level0_slowdown_trigger   = 8;
+    std::size_t  level1_max_bytes          = 256 * 1024 * 1024; // 256 MB
+    int          level_size_multiplier     = 10;
+    double       bloom_false_positive_rate = 0.01;
+    std::size_t  block_size                = 4096;              // 4 KB
+    bool         sync_writes               = false;
+    std::size_t  block_cache_size          = 8 * 1024 * 1024;  // 8 MB
+    int          compaction_threads        = 2;
+
+    enum class CompactionStyle { Leveled, Tiered } compaction_style = CompactionStyle::Leveled;
+};
+----
+
+== C++20 Feature Usage
+
+[cols="1,2", options="header"]
+|===
+| Feature | Usage
+| `std::jthread` | Background flush and compaction threads with automatic join
+| `std::stop_token` | Cooperative cancellation in ThreadPool workers
+| `std::atomic<shared_ptr<T>>` | Lock-free MemTable swap during flush
+| Concepts | `Comparator` concept constraining key comparison template parameter
+| `std::span` | Zero-copy buffer views in Block and WAL
+| `std::format` | Log messages and SSTable filename generation
+|===
+
+== Benchmark Plan
+
+=== Workloads (YCSB-inspired)
+
+[cols="1,1,1", options="header"]
+|===
+| Workload | Read % | Write %
+| A (balanced)   | 50 | 50
+| B (read-heavy) | 95 | 5
+| C (read-only)  | 100 | 0
+| D (write-heavy)| 5  | 95
+|===
+
+=== Metrics
+
+* **Write amplification**: bytes written to disk / bytes written by client
+* **Read amplification**: disk reads per client read
+* **Space amplification**: disk usage / logical data size
+* **Throughput**: ops/sec at p50, p99 latency
+* **Compaction impact**: write stall frequency and duration
+
+=== Comparison Matrix
+
+[cols="1,1,1,1", options="header"]
+|===
+| Implementation | Write Amp | Read Amp | Space Amp
+| This (Leveled) | ~10-30x   | ~2-5x    | ~1.1x
+| This (Tiered)  | ~3-10x    | ~10-30x  | ~2-3x
+| RocksDB        | baseline  | baseline | baseline
+|===
+
+== Build & Dependencies
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.22)
+project(lsm_tree LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(GTest REQUIRED)
+
+add_library(lsmtree
+    src/wal.cpp
+    src/memtable.cpp
+    src/skiplist.cpp
+    src/sstable.cpp
+    src/sstable_builder.cpp
+    src/bloom_filter.cpp
+    src/block_cache.cpp
+    src/level_manager.cpp
+    src/compaction_scheduler.cpp
+    src/leveled_compaction.cpp
+    src/tiered_compaction.cpp
+    src/merging_iterator.cpp
+    src/thread_pool.cpp
+    src/lsm_tree.cpp
+)
+
+target_include_directories(lsmtree PUBLIC include/)
+
+add_executable(lsm_bench bench/main.cpp)
+target_link_libraries(lsm_bench PRIVATE lsmtree)
+
+add_executable(lsm_tests tests/main.cpp)
+target_link_libraries(lsm_tests PRIVATE lsmtree GTest::gtest_main)
+----

@@ -1,0 +1,42 @@
+@startuml lsm_04_iterators
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam roundCorner 8
+skinparam shadowing false
+
+interface IIterator {
+  + seek(key: string_view) : void
+  + next() : void
+  + valid() : bool
+  + key() : string_view
+  + value() : string_view
+}
+
+class MergingIterator {
+  + seek(key) : void
+  + next() : void
+  + valid() : bool
+  - heap_ : priority_queue<IIterator*>
+}
+
+class SkipListIterator {
+  + seek(key) : void
+  + next() : void
+  + valid() : bool
+  - current_ : Node*
+}
+
+class SSTableIterator {
+  + seek(key) : void
+  + next() : void
+  + valid() : bool
+  - sst_ : const SSTable&
+  - block_idx_ : size_t
+}
+
+SkipListIterator  ..|> IIterator
+SSTableIterator   ..|> IIterator
+MergingIterator   ..|> IIterator
+MergingIterator   o-- IIterator : aggregates
+
+@enduml

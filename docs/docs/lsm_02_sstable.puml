@@ -1,0 +1,53 @@
+@startuml lsm_02_sstable
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam roundCorner 8
+skinparam shadowing false
+
+class SSTable {
+  + open(path) : SSTable
+  + get(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  + file_size() : size_t
+  - data_blocks_ : vector<Block>
+  - index_block_ : IndexBlock
+  - filter_block_ : FilterBlock
+}
+
+class SSTableBuilder {
+  + add(key, value) : void
+  + finish() : SSTable
+  + estimated_size() : size_t
+  - current_block_ : BlockBuilder
+  - filter_ : BloomFilter
+}
+
+class Block {
+  + get(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  - data_ : span<const byte>
+}
+
+class BloomFilter {
+  + add(key) : void
+  + may_contain(key) : bool
+  + serialize() : vector<byte>
+  + deserialize(data) : BloomFilter
+  - bits_ : vector<bool>
+  - num_hashes_ : size_t
+}
+
+class BlockCache {
+  + lookup(file_id, offset) : optional<Block>
+  + insert(file_id, offset, block) : void
+  + capacity() : size_t
+  - mu_ : mutex
+  - capacity_ : size_t
+}
+
+SSTable *-- Block
+SSTable *-- BloomFilter
+SSTable ..> BlockCache : uses
+SSTableBuilder ..> SSTable : creates
+
+@enduml

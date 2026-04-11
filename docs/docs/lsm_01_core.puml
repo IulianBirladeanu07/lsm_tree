@@ -1,0 +1,71 @@
+@startuml lsm_01_core
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam roundCorner 8
+skinparam shadowing false
+
+class LSMTree << (F,#C4B5FD) >> {
+  + put(key: string_view, value: string_view) : void
+  + get(key: string_view) : optional<string>
+  + del(key: string_view) : void
+  + scan(start, end) : vector<KV>
+  + get_snapshot() : Snapshot
+}
+
+class WAL {
+  + append(key, value, type) : void
+  + recover() : vector<LogEntry>
+  + sync() : void
+  - fd_ : int
+  - path_ : fs::path
+}
+
+class MemTable {
+  + insert(key, value) : void
+  + get(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  + size_bytes() : size_t
+  + is_full() : bool
+  - size_ : atomic<size_t>
+}
+
+class ConcurrentSkipList {
+  + insert(key, value) : void
+  + find(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  - head_ : atomic<Node*>
+  - height_ : atomic<int>
+  - size_ : atomic<size_t>
+}
+
+class LevelManager {
+  + add_sstable(level, sst) : void
+  + pick_compaction(strategy) : CompactionJob
+  + get_level(n) : vector<SSTable>
+  + num_levels() : size_t
+  - levels_ : vector<vector<SSTable>>
+  - mu_ : shared_mutex
+}
+
+class Options {
+  + memtable_size_bytes : size_t
+  + num_levels : int
+  + level0_compaction_trigger : int
+  + bloom_false_positive_rate : double
+  + block_size : size_t
+  + sync_writes : bool
+}
+
+class Snapshot {
+  + sequence_number : uint64_t
+  - refcount_ : atomic<int>
+}
+
+LSMTree *-- WAL
+LSMTree *-- MemTable
+LSMTree *-- LevelManager
+LSMTree ..> Options
+LSMTree ..> Snapshot
+MemTable *-- ConcurrentSkipList
+
+@enduml

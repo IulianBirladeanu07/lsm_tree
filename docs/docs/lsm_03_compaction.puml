@@ -1,0 +1,52 @@
+@startuml lsm_03_compaction
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam roundCorner 8
+skinparam shadowing false
+
+class CompactionScheduler {
+  + schedule() : void
+  + cancel_all() : void
+  + set_strategy(strategy) : void
+  - pool_ : ThreadPool
+  - strategy_ : unique_ptr<ICompactionStrategy>
+}
+
+interface ICompactionStrategy {
+  + pick_job(levels) : CompactionJob
+  + score(level) : double
+}
+
+class LeveledCompaction {
+  + pick_job(levels) : CompactionJob
+  + score(level) : double
+  - max_bytes_for_level_ : vector<size_t>
+}
+
+class TieredCompaction {
+  + pick_job(levels) : CompactionJob
+  + score(level) : double
+  - size_ratio_ : double
+}
+
+class CompactionJob {
+  + input_files : vector<SSTable>
+  + output_level : int
+  + sequence_number : uint64_t
+}
+
+class ThreadPool {
+  + submit(task) : future<void>
+  + shutdown() : void
+  - workers_ : vector<jthread>
+  - queue_ : deque<function<void()>>
+  - mu_ : mutex
+}
+
+CompactionScheduler *-- ThreadPool
+CompactionScheduler ..> ICompactionStrategy : uses
+CompactionScheduler ..> CompactionJob : creates
+LeveledCompaction ..|> ICompactionStrategy
+TieredCompaction  ..|> ICompactionStrategy
+
+@enduml

@@ -1,0 +1,205 @@
+@startuml lsm_tree
+scale 0.5
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam ClassBackgroundColor #FAFAFA
+skinparam ClassBorderColor #AAAAAA
+skinparam ArrowColor #555555
+
+class LSMTree << (F,#C4B5FD) facade >> {
+  + put(key: string_view, value: string_view) : void
+  + get(key: string_view) : optional<string>
+  + del(key: string_view) : void
+  + scan(start: string_view, end: string_view) : vector<KV>
+  + get_snapshot() : Snapshot
+}
+
+class WAL << (C,#6EE7B7) core >> {
+  + append(key, value, type) : void
+  + recover() : vector<LogEntry>
+  + sync() : void
+  - fd_ : int
+  - path_ : fs::path
+}
+
+class MemTable << (C,#6EE7B7) core >> {
+  + insert(key, value) : void
+  + get(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  + size_bytes() : size_t
+  + is_full() : bool
+  - size_ : atomic<size_t>
+}
+
+class LevelManager << (C,#6EE7B7) core >> {
+  + add_sstable(level, sst) : void
+  + pick_compaction(strategy) : CompactionJob
+  + get_level(n) : vector<SSTable>
+  + num_levels() : size_t
+  - levels_ : vector<vector<SSTable>>
+  - mu_ : shared_mutex
+}
+
+class SSTable << (S,#FCA5A5) sstable >> {
+  + open(path) : SSTable
+  + get(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  + file_size() : size_t
+  - data_blocks_ : vector<Block>
+  - index_block_ : IndexBlock
+  - filter_block_ : FilterBlock
+}
+
+class SSTableBuilder << (S,#FCA5A5) sstable >> {
+  + add(key, value) : void
+  + finish() : SSTable
+  + estimated_size() : size_t
+  - current_block_ : BlockBuilder
+  - filter_ : BloomFilter
+}
+
+class Block << (S,#FCA5A5) sstable >> {
+  + get(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  - data_ : span<const byte>
+}
+
+class ConcurrentSkipList << (I,#93C5FD) infra >> {
+  + insert(key, value) : void
+  + find(key) : optional<string>
+  + iterator() : unique_ptr<IIterator>
+  - head_ : atomic<Node*>
+  - height_ : atomic<int>
+  - size_ : atomic<size_t>
+}
+
+class BlockCache << (I,#93C5FD) infra >> {
+  + lookup(file_id, offset) : optional<Block>
+  + insert(file_id, offset, block) : void
+  + capacity() : size_t
+  - mu_ : mutex
+  - capacity_ : size_t
+}
+
+class BloomFilter << (I,#93C5FD) infra >> {
+  + add(key) : void
+  + may_contain(key) : bool
+  + serialize() : vector<byte>
+  + deserialize(data) : BloomFilter
+  - bits_ : vector<bool>
+  - num_hashes_ : size_t
+}
+
+class ThreadPool << (I,#93C5FD) infra >> {
+  + submit(task) : future<void>
+  + shutdown() : void
+  - workers_ : vector<jthread>
+  - queue_ : deque<function<void()>>
+  - mu_ : mutex
+}
+
+class CompactionScheduler << (C,#FDE68A) compact >> {
+  + schedule() : void
+  + cancel_all() : void
+  + set_strategy(strategy) : void
+}
+
+interface ICompactionStrategy {
+  + pick_job(levels) : CompactionJob
+  + score(level) : double
+}
+
+class LeveledCompaction << (C,#FDE68A) compact >> {
+  + pick_job(levels) : CompactionJob
+  + score(level) : double
+  - max_bytes_for_level_ : vector<size_t>
+}
+
+class TieredCompaction << (C,#FDE68A) compact >> {
+  + pick_job(levels) : CompactionJob
+  + score(level) : double
+  - size_ratio_ : double
+}
+
+class CompactionJob {
+  + input_files : vector<SSTable>
+  + output_level : int
+  + sequence_number : uint64_t
+}
+
+interface IIterator {
+  + seek(key: string_view) : void
+  + next() : void
+  + valid() : bool
+  + key() : string_view
+  + value() : string_view
+}
+
+class MergingIterator {
+  + seek(key) : void
+  + next() : void
+  + valid() : bool
+  - heap_ : priority_queue<IIterator*>
+}
+
+class SkipListIterator {
+  + seek(key) : void
+  + next() : void
+  + valid() : bool
+  - current_ : Node*
+}
+
+class SSTableIterator {
+  + seek(key) : void
+  + next() : void
+  + valid() : bool
+  - block_idx_ : size_t
+}
+
+' ── Utilities ─────────────────────────────────────────────────────────
+class Snapshot {
+  + sequence_number : uint64_t
+  - refcount_ : atomic<int>
+}
+
+class Options {
+  + memtable_size_bytes : size_t
+  + num_levels : int
+  + level0_compaction_trigger : int
+  + bloom_false_positive_rate : double
+  + block_size : size_t
+  + sync_writes : bool
+}
+
+' ── Relations ─────────────────────────────────────────────────────────
+LSMTree *-- WAL
+LSMTree *-- MemTable
+LSMTree *-- LevelManager
+LSMTree *-- CompactionScheduler
+LSMTree ..> Options
+LSMTree ..> Snapshot
+
+MemTable *-- ConcurrentSkipList
+SSTable *-- BloomFilter
+SSTable *-- Block
+SSTableBuilder ..> SSTable : creates
+
+SSTable ..> BlockCache : uses
+LevelManager ..> SSTable : manages
+
+CompactionScheduler *-- ThreadPool
+CompactionScheduler ..> ICompactionStrategy : uses
+CompactionScheduler ..> CompactionJob : creates
+LeveledCompaction ..|> ICompactionStrategy
+TieredCompaction   ..|> ICompactionStrategy
+
+SkipListIterator  ..|> IIterator
+SSTableIterator   ..|> IIterator
+MergingIterator   ..|> IIterator
+MergingIterator   o-- IIterator : aggregates
+
+@enduml
