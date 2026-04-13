@@ -1,0 +1,5 @@
+add_executable(test_bloom_filter test_bloom_filter.cpp)
+target_link_libraries(test_bloom_filter lsm_util)
+
+add_executable(test_block_builder test_block_builder.cpp)
+target_link_libraries(test_block_builder lsm_sstable)
