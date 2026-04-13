@@ -1,4 +1,5 @@
 add_library(lsm_sstable
+    block.cpp
     block_builder.cpp
 )
 target_include_directories(lsm_sstable PUBLIC ${PROJECT_SOURCE_DIR}/include)

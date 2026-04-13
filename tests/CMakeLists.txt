@@ -3,3 +3,6 @@ target_link_libraries(test_bloom_filter lsm_util)
 
 add_executable(test_block_builder test_block_builder.cpp)
 target_link_libraries(test_block_builder lsm_sstable)
+
+add_executable(test_block test_block.cpp)
+target_link_libraries(test_block lsm_sstable)
