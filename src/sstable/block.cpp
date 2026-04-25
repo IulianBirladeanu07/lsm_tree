@@ -19,11 +19,16 @@ bool Block::key_matches(std::size_t offset, std::string_view key) const {
 }
 
 std::optional<std::string> Block::get(std::string_view key) const {
+    if (data_.size() < sizeof(uint32_t)) return std::nullopt;
+
+    std::size_t limit = data_.size() - sizeof(uint32_t);
     std::size_t offset = 0;
 
-    while (offset < data_.size() - 4) {
+    while (offset + kHeaderSize <= limit) {
         uint32_t key_len = read_uint32(offset);
         uint32_t val_len = read_uint32(offset + 4);
+
+        if (offset + kHeaderSize + key_len + val_len > limit) break;
 
         if (key_matches(offset, key)) {
             return std::string(
@@ -31,10 +36,9 @@ std::optional<std::string> Block::get(std::string_view key) const {
                 val_len
             );
         }
-        offset += kHeaderSize + key_len + val_len; 
+        offset += kHeaderSize + key_len + val_len;
     }
     return std::nullopt;
-
 }
 
 } // namespace lsm

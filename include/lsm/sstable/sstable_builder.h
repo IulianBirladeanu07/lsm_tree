@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
-#include <vector>
 #include <string_view>
 #include "lsm/sstable/block_builder.h"
 #include "lsm/sstable/index_block.h"
@@ -9,8 +8,7 @@
 
 namespace lsm {
 
-struct Options;
-class  SSTable;
+class SSTable;
 
 class SSTableBuilder {
 public:
@@ -19,12 +17,12 @@ public:
     ~SSTableBuilder();
 
     void        add(std::string_view key, std::string_view value);
-    void        finish();
+    SSTable     finish();
     std::size_t estimated_size() const;
 
 private:
     void flush_block();
-    void write_bytes(const uint8_t* data, std:size_t len);
+    void write_bytes(const uint8_t* data, std::size_t len);
 
     std::filesystem::path path_;
     int                   fd_;

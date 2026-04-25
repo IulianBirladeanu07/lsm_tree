@@ -35,7 +35,8 @@ private:
     uint64_t    file_id_{0};
     std::size_t file_size_{0};
     IndexBlock  index_;
-    BloomFilter filter_;
     Footer      footer_{};
+    std::optional<BloomFilter> filter_;
+
 };
 } // namespace lsm

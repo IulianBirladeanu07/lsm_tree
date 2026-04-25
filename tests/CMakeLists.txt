@@ -6,3 +6,6 @@ target_link_libraries(test_block_builder lsm_sstable)
 
 add_executable(test_block test_block.cpp)
 target_link_libraries(test_block lsm_sstable)
+
+add_executable(test_sstable test_sstable.cpp)
+target_link_libraries(test_sstable lsm_sstable)
