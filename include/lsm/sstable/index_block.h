@@ -7,6 +7,7 @@
 namespace lsm {
 
 struct IndexEntry {
+    std::string first_key;
     std::string last_key;
     uint64_t    offset;
     uint64_t    size;
@@ -14,11 +15,10 @@ struct IndexEntry {
 
 class IndexBlock {
 public:
-    void add(std::string last_key, uint64_t offset, uint64_t size);
+    void add(std::string first_key, std::string last_key, uint64_t offset, uint64_t size);
 
-    std::vector<uint8_t>        serialize() const;
-    static IndexBlock           deserialize(std::span<const uint8_t> data);
-
+    std::vector<uint8_t> serialize() const;
+    static IndexBlock    deserialize(std::span<const uint8_t> data);
     const std::vector<IndexEntry>& entries() const { return entries_; }
 
 private:

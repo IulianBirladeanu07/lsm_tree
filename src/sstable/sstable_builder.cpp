@@ -41,21 +41,24 @@ void SSTableBuilder::flush_block() {
     auto block_data = current_block_.finish();
     uint64_t block_size = block_data.size();
     
-    index_.add(last_key_, offset_, block_size);
+    index_.add(first_key_, last_key_, offset_, block_size);
     write_bytes(block_data.data(), block_data.size());
     offset_ += block_size;
 
     current_block_.reset();
+    first_key_.clear();
 }
 
 void SSTableBuilder::add(std::string_view key, std::string_view value) {
     filter_.add(key);
-    last_key_ = std::string(key);
 
     if (current_block_.is_full()) {
         flush_block();
     }
 
+    if (first_key_.empty()) first_key_ = std::string(key);
+
+    last_key_ = std::string(key);
     current_block_.add(key, value);
 }
 

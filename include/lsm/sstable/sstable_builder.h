@@ -30,6 +30,7 @@ private:
     IndexBlock            index_;
     BloomFilter           filter_;
     uint64_t              offset_{0};
+    std::string           first_key_;
     std::string           last_key_;
 };
 

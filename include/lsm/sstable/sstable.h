@@ -18,7 +18,7 @@ public:
     std::optional<std::string> get(std::string_view key) const;
 
     std::size_t      file_size()    const { return file_size_; }
-    std::string_view smallest_key() const { return index_.entries().front().last_key; }
+    std::string_view smallest_key() const { return index_.entries().front().first_key; }
     std::string_view largest_key()  const { return index_.entries().back().last_key; }
     
     uint64_t         file_id()      const { return file_id_; }
