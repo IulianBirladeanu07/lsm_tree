@@ -9,3 +9,6 @@ target_link_libraries(test_block lsm_sstable)
 
 add_executable(test_sstable test_sstable.cpp)
 target_link_libraries(test_sstable lsm_sstable)
+
+add_executable(test_wal test_wal.cpp)
+target_link_libraries(test_wal lsm_wal)
