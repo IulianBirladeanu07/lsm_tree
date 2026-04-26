@@ -15,3 +15,6 @@ target_link_libraries(test_wal lsm_wal)
 
 add_executable(test_concurrent_skip_list test_concurrent_skip_list.cpp)
 target_link_libraries(test_concurrent_skip_list lsm_memtable)
+
+add_executable(test_memtable test_memtable.cpp)
+target_link_libraries(test_memtable lsm_memtable)

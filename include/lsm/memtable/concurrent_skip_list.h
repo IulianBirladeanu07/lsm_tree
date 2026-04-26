@@ -59,7 +59,7 @@ public:
         return height;
     }
 
-    void put(std::string key, std::string_view value) {
+    void put(std::string_view key, std::string_view value) {
         std::lock_guard<std::mutex> lock(mutex_);
 
         std::array<Node*, kMaxHeight> previous{};
