@@ -12,3 +12,6 @@ target_link_libraries(test_sstable lsm_sstable)
 
 add_executable(test_wal test_wal.cpp)
 target_link_libraries(test_wal lsm_wal)
+
+add_executable(test_concurrent_skip_list test_concurrent_skip_list.cpp)
+target_link_libraries(test_concurrent_skip_list lsm_memtable)
