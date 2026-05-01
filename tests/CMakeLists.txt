@@ -18,3 +18,6 @@ target_link_libraries(test_concurrent_skip_list lsm_memtable)
 
 add_executable(test_memtable test_memtable.cpp)
 target_link_libraries(test_memtable lsm_memtable)
+
+add_executable(test_block_cache test_block_cache.cpp)
+target_link_libraries(test_block_cache lsm_sstable)

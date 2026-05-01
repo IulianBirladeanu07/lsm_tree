@@ -59,15 +59,16 @@ public:
         return height;
     }
 
-    void put(std::string_view key, std::string_view value) {
+    std::optional<std::string> put(std::string_view key, std::string_view value) {
         std::lock_guard<std::mutex> lock(mutex_);
 
         std::array<Node*, kMaxHeight> previous{};
         Node* existing_node = find_previous(key, previous);
 
         if (existing_node != nullptr && existing_node->key == key) {
+            std::optional<std::string> old_value = existing_node->value;
             existing_node->value = std::string(value);
-            return;
+            return old_value;
         }
         int new_height = random_height();
         int current_height  = height_.load(std::memory_order_relaxed);
@@ -85,6 +86,7 @@ public:
             previous[i]->next[i].store(new_node, std::memory_order_release);
         }
         elements_.fetch_add(1, std::memory_order_relaxed);
+        return std::nullopt;
     }
 
     std::optional<std::string> get(std::string_view key) const {

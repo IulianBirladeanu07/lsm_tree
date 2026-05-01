@@ -1,6 +1,7 @@
 add_library(lsm_sstable
     block.cpp
     block_builder.cpp
+    block_cache.cpp
     footer.cpp
     index_block.cpp
     sstable.cpp

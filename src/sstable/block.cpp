@@ -41,4 +41,8 @@ std::optional<std::string> Block::get(std::string_view key) const {
     return std::nullopt;
 }
 
+std::size_t Block::size() const {
+    return data_.size();
+}
+
 } // namespace lsm
