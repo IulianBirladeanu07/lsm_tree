@@ -27,3 +27,6 @@ target_link_libraries(test_level_manager lsm_levels)
 
 add_executable(test_merging_iterator test_merging_iterator.cpp)
 target_link_libraries(test_merging_iterator lsm_iterator)
+
+add_executable(test_thread_pool test_thread_pool.cpp)
+target_link_libraries(test_thread_pool lsm_compaction)
