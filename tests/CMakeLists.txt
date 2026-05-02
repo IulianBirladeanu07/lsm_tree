@@ -24,3 +24,6 @@ target_link_libraries(test_block_cache lsm_sstable)
 
 add_executable(test_level_manager test_level_manager.cpp)
 target_link_libraries(test_level_manager lsm_levels)
+
+add_executable(test_merging_iterator test_merging_iterator.cpp)
+target_link_libraries(test_merging_iterator lsm_iterator)
