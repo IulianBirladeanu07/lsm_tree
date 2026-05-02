@@ -21,3 +21,6 @@ target_link_libraries(test_memtable lsm_memtable)
 
 add_executable(test_block_cache test_block_cache.cpp)
 target_link_libraries(test_block_cache lsm_sstable)
+
+add_executable(test_level_manager test_level_manager.cpp)
+target_link_libraries(test_level_manager lsm_levels)
