@@ -7,8 +7,12 @@ namespace lsm {
 
 CompactionScheduler::CompactionScheduler(std::unique_ptr<ICompactionStrategy> strategy,
                                          std::shared_ptr<LevelManager> levels,
-                                         std::shared_ptr<ThreadPool> thread_pool)
-    : strategy_(std::move(strategy)), levels_(std::move(levels)), thread_pool_(std::move(thread_pool)) {}
+                                         std::shared_ptr<ThreadPool> thread_pool,
+                                         std::function<std::string()> path_generator)
+    : strategy_(std::move(strategy))
+    , levels_(std::move(levels))
+    , thread_pool_(std::move(thread_pool))
+    , path_generator_(std::move(path_generator)) {}
 
 CompactionScheduler::~CompactionScheduler() {}
 
@@ -17,6 +21,9 @@ void CompactionScheduler::schedule() {
     if (job.inputs.empty()) {
         return;
     }
+
+    job.output_path = path_generator_();
+
     thread_pool_->submit([this, job] {
         run_compaction(job);
     });
@@ -34,7 +41,9 @@ void CompactionScheduler::run_compaction(const CompactionJob& job) {
                            job.inputs.size() * 100, 0.01);
 
     while (merged.valid()) {
-        builder.add(merged.key(), merged.value());
+        if (merged.value() != "\xFF") {
+            builder.add(merged.key(), merged.value());
+        }
         merged.next();
     }
 

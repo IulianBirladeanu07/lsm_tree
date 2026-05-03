@@ -18,7 +18,8 @@ LSMTree::LSMTree(std::filesystem::path dir, LSMOptions opts)
     compaction_ = std::make_unique<CompactionScheduler>(
         std::make_unique<LeveledCompaction>(),
         levels_,
-        thread_pool_);
+        thread_pool_,
+        [this] { return next_sst_path(); });
 }
 
 LSMTree::~LSMTree() {
@@ -31,29 +32,33 @@ void LSMTree::put(std::string_view key, std::string_view value) {
     auto mem = std::atomic_load(&mem_);
     mem->put(key, value);
 
-    if (mem->is_full()) {
-        flush_memtable();
+    if (mem->is_full() && mem->try_mark_flushing()) {
+        flush_memtable(mem);
     }
 }
 
 std::optional<std::string> LSMTree::get(std::string_view key) const {
+    auto is_tombstone = [](const std::optional<std::string>& r) {
+        return r && *r == kTombstone;
+    };
+
     auto mem = std::atomic_load(&mem_);
-    auto result = mem->get(key);
-    if (result) return result;
+    auto r = mem->get(key);
+    if (r) return is_tombstone(r) ? std::nullopt : r;
 
     {
         std::shared_lock lock(imm_mu_);
         for (auto it = imm_.rbegin(); it != imm_.rend(); ++it) {
-            result = (*it)->get(key);
-            if (result) return result;
+            r = (*it)->get(key);
+            if (r) return is_tombstone(r) ? std::nullopt : r;
         }
     }
 
     for (int level = 0; level < levels_->num_levels(); ++level) {
         auto sstables = levels_->get_level(level);
         for (auto& sst : sstables) {
-            result = sst->get(key);
-            if (result) return result;
+            r = sst->get(key);
+            if (r) return is_tombstone(r) ? std::nullopt : r;
         }
     }
 
@@ -63,11 +68,10 @@ std::optional<std::string> LSMTree::get(std::string_view key) const {
 void LSMTree::del(std::string_view key) {
     wal_->remove(key);
     auto mem = std::atomic_load(&mem_);
-    mem->put(key, "\xFF");
+    mem->put(key, kTombstone);
 }
 
-void LSMTree::flush_memtable() {
-    auto old_mem = std::atomic_load(&mem_);
+void LSMTree::flush_memtable(std::shared_ptr<MemTable> old_mem) {
     auto new_mem = std::make_shared<MemTable>(opts_.memtable_size);
     std::atomic_store(&mem_, new_mem);
 

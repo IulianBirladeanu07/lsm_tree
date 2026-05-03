@@ -17,6 +17,8 @@
 
 namespace lsm {
 
+static constexpr std::string_view kTombstone = "\xFF";
+
 struct LSMOptions {
     std::size_t memtable_size      = 64 * 1024 * 1024;
     std::size_t block_cache_size   = 8  * 1024 * 1024;
@@ -37,7 +39,7 @@ public:
     void                       del(std::string_view key);
 
 private:
-    void        flush_memtable();
+    void        flush_memtable(std::shared_ptr<MemTable> old_mem);
     std::string next_sst_path();
 
     std::filesystem::path dir_;

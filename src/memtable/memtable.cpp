@@ -33,6 +33,13 @@ bool MemTable::is_mutable() const {
     return writable_.load(std::memory_order_acquire);
 }
 
+bool MemTable::try_mark_flushing() {
+    bool expected = false;
+    return flushing_.compare_exchange_strong(expected, true,
+                                             std::memory_order_acq_rel,
+                                             std::memory_order_acquire);
+}
+
 ConcurrentSkipList::Iterator MemTable::iterator() const {
     return skip_list_.begin();
 }

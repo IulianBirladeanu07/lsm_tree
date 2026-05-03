@@ -14,11 +14,13 @@ public:
     bool contains(std::string_view key);
     bool is_full() const;
     bool is_mutable() const;
+    bool try_mark_flushing();
     ConcurrentSkipList::Iterator iterator() const;
 
 private:
     ConcurrentSkipList skip_list_;
-    std::atomic<bool> writable_ {true};
+    std::atomic<bool> writable_{true};
+    std::atomic<bool> flushing_{false};
     std::atomic<size_t> size_;
     size_t capacity_;
 
