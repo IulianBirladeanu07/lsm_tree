@@ -1,4 +1,5 @@
 #include "lsm/memtable/memtable.h"
+#include "lsm/iterator/skiplist_iterator.h"
 
 namespace lsm {
 
@@ -47,6 +48,10 @@ bool MemTable::try_mark_flushing() {
 
 ConcurrentSkipList::Iterator MemTable::iterator() const {
     return skip_list_.begin();
+}
+
+std::unique_ptr<IIterator> MemTable::iiterator() const {
+    return std::make_unique<SkipListIterator>(skip_list_);
 }
 
 } // namespace lsm

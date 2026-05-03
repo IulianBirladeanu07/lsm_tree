@@ -1,7 +1,9 @@
 #pragma once
 #include "lsm/memtable/concurrent_skip_list.h"
+#include "lsm/iterator/iterator.h"
 #include <optional>
 #include <atomic>
+#include <memory>
 #include <string>
 
 namespace lsm {
@@ -16,6 +18,7 @@ public:
     bool is_mutable() const;
     bool try_mark_flushing();
     ConcurrentSkipList::Iterator iterator() const;
+    std::unique_ptr<IIterator> iiterator() const;
 
 private:
     ConcurrentSkipList skip_list_;
