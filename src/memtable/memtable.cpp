@@ -33,4 +33,8 @@ bool MemTable::is_mutable() const {
     return writable_.load(std::memory_order_acquire);
 }
 
+ConcurrentSkipList::Iterator MemTable::iterator() const {
+    return skip_list_.begin();
+}
+
 } // namespace lsm

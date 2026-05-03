@@ -28,6 +28,23 @@ public:
         } 
     };
 
+    struct Iterator {
+        const Node* cur;
+
+        bool valid() const { return cur != nullptr; }
+        std::string_view key() const { return cur->key; }
+        std::string_view value() const { return cur->value; }
+        void next() {
+            cur = cur->next[0].load(std::memory_order_acquire);
+        }
+    };
+
+    Iterator begin() const {
+        const Node* head = head_.load(std::memory_order_acquire);
+        const Node* first = head->next[0].load(std::memory_order_acquire);
+        return Iterator{first};
+    }
+
     ConcurrentSkipList() : head_(new Node("", "", kMaxHeight)), height_(1), elements_(0), rng_(std::random_device{}()) {}
     ~ConcurrentSkipList() {
         Node* current = head_.load(std::memory_order_relaxed);

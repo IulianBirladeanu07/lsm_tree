@@ -14,6 +14,7 @@ public:
     bool contains(std::string_view key);
     bool is_full() const;
     bool is_mutable() const;
+    ConcurrentSkipList::Iterator iterator() const;
 
 private:
     ConcurrentSkipList skip_list_;
