@@ -6,3 +6,4 @@ test_bb
 .cache/
 .vscode/
 bench/.venv/
+results/
