@@ -20,13 +20,16 @@ namespace lsm {
 static constexpr std::string_view kTombstone = "\xFF";
 
 struct LSMOptions {
-    std::size_t memtable_size      = 64 * 1024 * 1024;
-    std::size_t block_cache_size   = 8  * 1024 * 1024;
-    int         num_levels         = 7;
-    int         compaction_threads = 2;
-    bool        sync_writes        = false;
-    double      bloom_fpr          = 0.01;
-    std::size_t block_size         = 4096;
+    enum class CompactionStyle { Leveled, Tiered };
+
+    std::size_t      memtable_size      = 64 * 1024 * 1024;
+    std::size_t      block_cache_size   = 8  * 1024 * 1024;
+    int              num_levels         = 7;
+    int              compaction_threads = 2;
+    bool             sync_writes        = false;
+    double           bloom_fpr          = 0.01;
+    std::size_t      block_size         = 4096;
+    CompactionStyle  compaction_style   = CompactionStyle::Leveled;
 };
 
 class LSMTree {

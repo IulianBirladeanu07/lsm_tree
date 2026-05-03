@@ -1,5 +1,6 @@
 #include "lsm/lsm_tree.h"
 #include "lsm/compaction/leveled_compaction.h"
+#include "lsm/compaction/tiered_compaction.h"
 #include "lsm/sstable/sstable_builder.h"
 #include "lsm/sstable/sstable.h"
 #include <algorithm>
@@ -15,8 +16,15 @@ LSMTree::LSMTree(std::filesystem::path dir, LSMOptions opts)
     mem_.store(std::make_shared<MemTable>(opts_.memtable_size));
     levels_ = std::make_shared<LevelManager>(opts_.num_levels);
     thread_pool_ = std::make_shared<ThreadPool>(opts_.compaction_threads);
+
+    std::unique_ptr<ICompactionStrategy> strategy;
+    if (opts_.compaction_style == LSMOptions::CompactionStyle::Tiered)
+        strategy = std::make_unique<TieredCompaction>();
+    else
+        strategy = std::make_unique<LeveledCompaction>();
+
     compaction_ = std::make_unique<CompactionScheduler>(
-        std::make_unique<LeveledCompaction>(),
+        std::move(strategy),
         levels_,
         thread_pool_,
         [this] { return next_sst_path(); });
