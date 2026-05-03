@@ -1,24 +1,26 @@
+#include <gtest/gtest.h>
+#include <filesystem>
 #include "lsm/iterator/sstable_iterator.h"
 #include "lsm/sstable/sstable_builder.h"
 #include "lsm/sstable/sstable.h"
-#include <cassert>
-#include <iostream>
-#include <filesystem>
 
-int main() {
-    std::filesystem::path path = "/tmp/test_iter.sst";
+class SSTableIteratorTest : public ::testing::Test {
+protected:
+    std::filesystem::path path = "/tmp/test_sst_iter_gtest.sst";
 
-    {
-        lsm::SSTableBuilder builder(path, 4096, 100, 0.01);
-        builder.add("a", "1");
-        builder.add("b", "2");
-        builder.add("c", "3");
-        builder.add("d", "4");
-        builder.add("e", "5");
-        builder.finish();
+    void TearDown() override {
+        std::filesystem::remove(path);
     }
 
-    auto sst = lsm::SSTable::open(path);
+    lsm::SSTable build(std::vector<std::pair<std::string, std::string>> entries) {
+        lsm::SSTableBuilder builder(path, 4096, entries.size() + 1, 0.01);
+        for (auto& [k, v] : entries) builder.add(k, v);
+        return builder.finish();
+    }
+};
+
+TEST_F(SSTableIteratorTest, IteratesAllKeys) {
+    auto sst = build({{"a", "1"}, {"b", "2"}, {"c", "3"}, {"d", "4"}, {"e", "5"}});
     lsm::SSTableIterator it(sst);
 
     std::vector<std::string> keys;
@@ -27,18 +29,48 @@ int main() {
         it.next();
     }
 
-    assert(keys.size() == 5);
-    assert(keys[0] == "a");
-    assert(keys[4] == "e");
-    std::cout << "iteration: OK\n";
+    EXPECT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d", "e"}));
+}
 
-    lsm::SSTableIterator it2(sst);
-    it2.seek("c");
-    assert(it2.valid());
-    assert(it2.key() == "c");
-    std::cout << "seek: OK\n";
+TEST_F(SSTableIteratorTest, SeekExact) {
+    auto sst = build({{"a", "1"}, {"b", "2"}, {"c", "3"}});
+    lsm::SSTableIterator it(sst);
 
-    std::filesystem::remove(path);
-    std::cout << "all tests passed\n";
-    return 0;
+    it.seek("b");
+    ASSERT_TRUE(it.valid());
+    EXPECT_EQ(it.key(), "b");
+    EXPECT_EQ(it.value(), "2");
+}
+
+TEST_F(SSTableIteratorTest, SeekPastEnd) {
+    auto sst = build({{"a", "1"}, {"b", "2"}});
+    lsm::SSTableIterator it(sst);
+
+    it.seek("z");
+    EXPECT_FALSE(it.valid());
+}
+
+TEST_F(SSTableIteratorTest, SeekBetweenKeys) {
+    auto sst = build({{"a", "1"}, {"c", "3"}, {"e", "5"}});
+    lsm::SSTableIterator it(sst);
+
+    it.seek("b");
+    ASSERT_TRUE(it.valid());
+    EXPECT_EQ(it.key(), "c");
+}
+
+TEST_F(SSTableIteratorTest, IteratesAcrossMultipleBlocks) {
+    std::vector<std::pair<std::string, std::string>> entries;
+    for (int i = 0; i < 500; i++) {
+        entries.push_back({"key_" + std::to_string(1000 + i), "val_" + std::to_string(i)});
+    }
+    auto sst = build(entries);
+    lsm::SSTableIterator it(sst);
+
+    int count = 0;
+    while (it.valid()) {
+        count++;
+        it.next();
+    }
+    EXPECT_EQ(count, 500);
 }

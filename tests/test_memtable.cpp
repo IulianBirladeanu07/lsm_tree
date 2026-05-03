@@ -1,32 +1,69 @@
+#include <gtest/gtest.h>
 #include "lsm/memtable/memtable.h"
-#include <iostream>
-#include <cassert>
 
-int main() {
-    lsm::MemTable memtable(1024);
+TEST(MemTable, PutAndGet) {
+    lsm::MemTable mem(1024 * 1024);
+    mem.put("alpha", "1");
+    mem.put("beta", "2");
+    mem.put("gamma", "3");
 
-    memtable.put("alpha", "1");
-    memtable.put("beta", "2");
-    memtable.put("gamma", "3");
+    EXPECT_EQ(mem.get("alpha"), "1");
+    EXPECT_EQ(mem.get("beta"), "2");
+    EXPECT_EQ(mem.get("gamma"), "3");
+}
 
-    auto r1 = memtable.get("alpha");
-    auto r2 = memtable.get("gamma");
-    auto r3 = memtable.get("missing");
+TEST(MemTable, GetMissingKey) {
+    lsm::MemTable mem(1024 * 1024);
+    EXPECT_EQ(mem.get("missing"), std::nullopt);
+}
 
-    assert(r1 && *r1 == "1");
-    assert(r2 && *r2 == "3");
-    assert(!r3);
+TEST(MemTable, UpdateKey) {
+    lsm::MemTable mem(1024 * 1024);
+    mem.put("key", "old");
+    mem.put("key", "new");
+    EXPECT_EQ(mem.get("key"), "new");
+}
 
-    std::cout << "basic get: OK\n";
+TEST(MemTable, Contains) {
+    lsm::MemTable mem(1024 * 1024);
+    mem.put("key", "val");
+    EXPECT_TRUE(mem.contains("key"));
+    EXPECT_FALSE(mem.contains("missing"));
+}
 
-    assert(memtable.contains("beta"));
-    assert(!memtable.contains("delta"));
+TEST(MemTable, IsFullAfterCapacity) {
+    lsm::MemTable mem(32);
+    EXPECT_FALSE(mem.is_full());
+    mem.put("key_long_enough", "value_long_enough");
+    EXPECT_TRUE(mem.is_full());
+}
 
-    std::cout << "contains: OK\n";
+TEST(MemTable, IsMutableByDefault) {
+    lsm::MemTable mem(1024 * 1024);
+    EXPECT_TRUE(mem.is_mutable());
+}
 
-    std::cout << "is_full: " << memtable.is_full() << "\n";
-    std::cout << "is_mutable: " << memtable.is_mutable() << "\n";
+TEST(MemTable, TryMarkFlushing) {
+    lsm::MemTable mem(32);
+    mem.put("key_long_enough", "value_long_enough");
 
-    std::cout << "all tests passed\n";
-    return 0;
+    EXPECT_TRUE(mem.try_mark_flushing());
+    EXPECT_FALSE(mem.try_mark_flushing());
+}
+
+TEST(MemTable, IteratorOrder) {
+    lsm::MemTable mem(1024 * 1024);
+    mem.put("c", "3");
+    mem.put("a", "1");
+    mem.put("b", "2");
+
+    auto it = mem.iterator();
+    ASSERT_TRUE(it.valid());
+    EXPECT_EQ(it.key(), "a");
+    it.next();
+    EXPECT_EQ(it.key(), "b");
+    it.next();
+    EXPECT_EQ(it.key(), "c");
+    it.next();
+    EXPECT_FALSE(it.valid());
 }

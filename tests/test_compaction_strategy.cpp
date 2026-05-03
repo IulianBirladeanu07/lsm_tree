@@ -1,53 +1,68 @@
+#include <gtest/gtest.h>
+#include <filesystem>
 #include "lsm/compaction/leveled_compaction.h"
 #include "lsm/compaction/tiered_compaction.h"
 #include "lsm/levels/level_manager.h"
 #include "lsm/sstable/sstable_builder.h"
-#include <cassert>
-#include <iostream>
-#include <filesystem>
+#include "lsm/sstable/sstable.h"
 
-auto make_sst(const std::string& path) {
-    lsm::SSTableBuilder builder(path, 4096, 10, 0.01);
-    builder.add("key", "val");
-    auto sst = builder.finish();
-    return std::make_shared<lsm::SSTable>(std::move(sst));
+class CompactionStrategyTest : public ::testing::Test {
+protected:
+    int counter = 0;
+
+    std::shared_ptr<lsm::SSTable> make_sst() {
+        auto path = "/tmp/cs_gtest_" + std::to_string(counter++) + ".sst";
+        lsm::SSTableBuilder builder(path, 4096, 10, 0.01);
+        builder.add("key", "val");
+        auto sst = builder.finish();
+        return std::make_shared<lsm::SSTable>(std::move(sst));
+    }
+
+    void TearDown() override {
+        for (int i = 0; i < counter; i++) {
+            std::filesystem::remove("/tmp/cs_gtest_" + std::to_string(i) + ".sst");
+        }
+    }
+};
+
+TEST_F(CompactionStrategyTest, TieredScoreExceedsThreshold) {
+    lsm::LevelManager levels(4);
+    for (int i = 0; i < 5; i++) levels.add_sstable(0, make_sst());
+
+    lsm::TieredCompaction tiered(4);
+    EXPECT_GT(tiered.score(0, levels), 1.0);
 }
 
-int main() {
-    {
-        lsm::LevelManager levels(4);
-        auto sst1 = make_sst("/tmp/cs1.sst");
-        auto sst2 = make_sst("/tmp/cs2.sst");
-        auto sst3 = make_sst("/tmp/cs3.sst");
-        auto sst4 = make_sst("/tmp/cs4.sst");
-        auto sst5 = make_sst("/tmp/cs5.sst");
+TEST_F(CompactionStrategyTest, TieredPicksJobWhenFull) {
+    lsm::LevelManager levels(4);
+    for (int i = 0; i < 4; i++) levels.add_sstable(0, make_sst());
 
-        levels.add_sstable(0, sst1);
-        levels.add_sstable(0, sst2);
-        levels.add_sstable(0, sst3);
-        levels.add_sstable(0, sst4);
-        levels.add_sstable(0, sst5);
+    lsm::TieredCompaction tiered(4);
+    auto job = tiered.pick_job(levels);
 
-        lsm::TieredCompaction tiered(4);
-        assert(tiered.score(0, levels) > 1.0);
+    EXPECT_EQ(job.output_level, 1);
+    EXPECT_FALSE(job.inputs.empty());
+}
 
-        auto job = tiered.pick_job(levels);
-        assert(job.output_level == 1);
-        assert(!job.inputs.empty());
-        std::cout << "tiered compaction: OK\n";
-    }
+TEST_F(CompactionStrategyTest, TieredNoJobWhenBelowThreshold) {
+    lsm::LevelManager levels(4);
+    levels.add_sstable(0, make_sst());
+    levels.add_sstable(0, make_sst());
 
-    {
-        lsm::LevelManager levels(4);
-        lsm::LeveledCompaction leveled;
-        double s = leveled.score(0, levels);
-        assert(s == 0.0);
-        std::cout << "leveled score empty: OK\n";
-    }
+    lsm::TieredCompaction tiered(4);
+    auto job = tiered.pick_job(levels);
+    EXPECT_TRUE(job.inputs.empty());
+}
 
-    for (int i = 1; i <= 5; i++)
-        std::filesystem::remove("/tmp/cs" + std::to_string(i) + ".sst");
+TEST_F(CompactionStrategyTest, LeveledScoreZeroWhenEmpty) {
+    lsm::LevelManager levels(4);
+    lsm::LeveledCompaction leveled;
+    EXPECT_EQ(leveled.score(0, levels), 0.0);
+}
 
-    std::cout << "all tests passed\n";
-    return 0;
+TEST_F(CompactionStrategyTest, LeveledNoJobWhenEmpty) {
+    lsm::LevelManager levels(4);
+    lsm::LeveledCompaction leveled;
+    auto job = leveled.pick_job(levels);
+    EXPECT_TRUE(job.inputs.empty());
 }

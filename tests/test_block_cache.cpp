@@ -1,33 +1,60 @@
+#include <gtest/gtest.h>
 #include "lsm/sstable/block_cache.h"
-#include <cassert>
-#include <iostream>
 
-int main() {
+static lsm::Block make_block(uint8_t fill, std::size_t size) {
+    return lsm::Block(std::vector<uint8_t>(size, fill));
+}
+
+TEST(BlockCache, PutAndGet) {
+    lsm::BlockCache cache(1024 * 1024);
+    cache.put(1, 0, make_block(0xAA, 512));
+
+    auto r = cache.get(1, 0);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->size(), 512u);
+}
+
+TEST(BlockCache, GetMissingKey) {
     lsm::BlockCache cache(1024);
+    EXPECT_EQ(cache.get(99, 99), std::nullopt);
+}
 
-    std::vector<uint8_t> data1(512, 0xAA);
-    std::vector<uint8_t> data2(256, 0xBB);
-    std::vector<uint8_t> data3(512, 0xCC);
+TEST(BlockCache, UpdateExistingKey) {
+    lsm::BlockCache cache(1024 * 1024);
+    cache.put(1, 0, make_block(0xAA, 256));
+    cache.put(1, 0, make_block(0xBB, 512));
 
-    cache.put(1, 0, lsm::Block(data1));
-    cache.put(1, 512, lsm::Block(data2));
+    auto r = cache.get(1, 0);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->size(), 512u);
+}
 
-    auto b1 = cache.get(1, 0);
-    auto b2 = cache.get(1, 512);
-    auto b3 = cache.get(2, 0);
+TEST(BlockCache, EvictsWhenFull) {
+    lsm::BlockCache cache(512);
+    cache.put(1, 0, make_block(0xAA, 512));
+    cache.put(2, 0, make_block(0xBB, 512));
 
-    assert(b1 && b1->size() == data1.size());
-    assert(b2 && b2->size() == data2.size());
-    assert(!b3);
+    EXPECT_EQ(cache.get(1, 0), std::nullopt);
+    ASSERT_TRUE(cache.get(2, 0).has_value());
+}
 
-    std::cout << "basic put/get: OK\n";
+TEST(BlockCache, MultipleEntries) {
+    lsm::BlockCache cache(1024 * 1024);
+    cache.put(1, 0,   make_block(0xAA, 128));
+    cache.put(1, 128, make_block(0xBB, 128));
+    cache.put(2, 0,   make_block(0xCC, 128));
 
-    cache.put(2, 0, lsm::Block(data3));
-    auto b4 = cache.get(2, 0);
-    assert(b4 && b4->size() == data3.size());
+    EXPECT_TRUE(cache.get(1, 0).has_value());
+    EXPECT_TRUE(cache.get(1, 128).has_value());
+    EXPECT_TRUE(cache.get(2, 0).has_value());
+    EXPECT_EQ(cache.get(3, 0), std::nullopt);
+}
 
-    std::cout << "eviction: OK\n";
+TEST(BlockCache, CapacityAndUsage) {
+    lsm::BlockCache cache(1024);
+    EXPECT_EQ(cache.capacity(), 1024u);
+    EXPECT_EQ(cache.usage(), 0u);
 
-    std::cout << "all tests passed\n";
-    return 0;
+    cache.put(1, 0, make_block(0xAA, 256));
+    EXPECT_EQ(cache.usage(), 256u);
 }

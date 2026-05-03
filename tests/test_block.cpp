@@ -1,23 +1,43 @@
-#include <iostream>
+#include <gtest/gtest.h>
 #include "lsm/sstable/block_builder.h"
 #include "lsm/sstable/block.h"
 
-int main() {
+static lsm::Block make_block(std::vector<std::pair<std::string, std::string>> entries) {
     lsm::BlockBuilder builder(4096);
-    builder.add("apple", "fruit");
-    builder.add("banana", "yellow");
-    builder.add("cherry", "red");
+    for (auto& [k, v] : entries) {
+        builder.add(k, v);
+    }
+    return lsm::Block(builder.finish());
+}
 
+TEST(Block, GetExistingKey) {
+    auto block = make_block({{"apple", "fruit"}, {"banana", "yellow"}, {"cherry", "red"}});
+
+    EXPECT_EQ(block.get("apple"), "fruit");
+    EXPECT_EQ(block.get("banana"), "yellow");
+    EXPECT_EQ(block.get("cherry"), "red");
+}
+
+TEST(Block, GetMissingKey) {
+    auto block = make_block({{"apple", "fruit"}});
+    EXPECT_EQ(block.get("missing"), std::nullopt);
+}
+
+TEST(Block, GetFromEmptyBlock) {
+    lsm::BlockBuilder builder(4096);
     auto data = builder.finish();
     lsm::Block block(std::move(data));
+    EXPECT_EQ(block.get("key"), std::nullopt);
+}
 
-    auto r1 = block.get("apple");
-    auto r2 = block.get("banana");
-    auto r3 = block.get("missing");
+TEST(Block, SizeIsPositive) {
+    auto block = make_block({{"k", "v"}});
+    EXPECT_GT(block.size(), 0u);
+}
 
-    std::cout << "apple: "   << (r1 ? *r1 : "NOT FOUND") << "\n";
-    std::cout << "banana: "  << (r2 ? *r2 : "NOT FOUND") << "\n";
-    std::cout << "missing: " << (r3 ? *r3 : "NOT FOUND") << "\n";
-
-    return 0;
+TEST(Block, GetWithEmptyValue) {
+    auto block = make_block({{"key", ""}});
+    auto r = block.get("key");
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(*r, "");
 }

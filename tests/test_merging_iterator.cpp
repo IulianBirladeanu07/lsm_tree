@@ -1,8 +1,5 @@
+#include <gtest/gtest.h>
 #include "lsm/iterator/merging_iterator.h"
-#include <cassert>
-#include <iostream>
-#include <vector>
-#include <string>
 
 namespace lsm {
 
@@ -25,16 +22,23 @@ private:
     std::size_t idx_;
 };
 
-} // namespace lsm
+}
 
-int main() {
+static std::vector<std::unique_ptr<lsm::IIterator>> make_iters(
+    std::vector<std::vector<std::pair<std::string, std::string>>> sources)
+{
     std::vector<std::unique_ptr<lsm::IIterator>> iters;
-    iters.push_back(std::make_unique<lsm::VectorIterator>(
-        std::vector<std::pair<std::string,std::string>>{{"b","2"},{"d","4"},{"f","6"}}
-    ));
-    iters.push_back(std::make_unique<lsm::VectorIterator>(
-        std::vector<std::pair<std::string,std::string>>{{"a","1"},{"c","3"},{"e","5"}}
-    ));
+    for (auto& src : sources) {
+        iters.push_back(std::make_unique<lsm::VectorIterator>(std::move(src)));
+    }
+    return iters;
+}
+
+TEST(MergingIterator, MergesTwoSortedSources) {
+    auto iters = make_iters({
+        {{"b", "2"}, {"d", "4"}, {"f", "6"}},
+        {{"a", "1"}, {"c", "3"}, {"e", "5"}}
+    });
 
     lsm::MergingIterator mit(std::move(iters));
 
@@ -44,27 +48,60 @@ int main() {
         mit.next();
     }
 
-    assert(keys.size() == 6);
-    assert(keys[0] == "a");
-    assert(keys[1] == "b");
-    assert(keys[2] == "c");
-    assert(keys[3] == "d");
-    assert(keys[4] == "e");
-    assert(keys[5] == "f");
+    ASSERT_EQ(keys.size(), 6u);
+    EXPECT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d", "e", "f"}));
+}
 
-    std::cout << "merge order: OK\n";
+TEST(MergingIterator, EmptyIterators) {
+    auto iters = make_iters({});
+    lsm::MergingIterator mit(std::move(iters));
+    EXPECT_FALSE(mit.valid());
+}
 
-    std::vector<std::unique_ptr<lsm::IIterator>> iters2;
-    iters2.push_back(std::make_unique<lsm::VectorIterator>(
-        std::vector<std::pair<std::string,std::string>>{{"a","1"},{"c","3"},{"e","5"}}
-    ));
+TEST(MergingIterator, SingleSource) {
+    auto iters = make_iters({{{"a", "1"}, {"b", "2"}, {"c", "3"}}});
+    lsm::MergingIterator mit(std::move(iters));
 
-    lsm::MergingIterator mit2(std::move(iters2));
-    mit2.seek("c");
-    assert(mit2.valid());
-    assert(mit2.key() == "c");
+    std::vector<std::string> keys;
+    while (mit.valid()) {
+        keys.push_back(std::string(mit.key()));
+        mit.next();
+    }
 
-    std::cout << "seek: OK\n";
-    std::cout << "all tests passed\n";
-    return 0;
+    EXPECT_EQ(keys, (std::vector<std::string>{"a", "b", "c"}));
+}
+
+TEST(MergingIterator, Seek) {
+    auto iters = make_iters({{{"a", "1"}, {"c", "3"}, {"e", "5"}}});
+    lsm::MergingIterator mit(std::move(iters));
+
+    mit.seek("c");
+    ASSERT_TRUE(mit.valid());
+    EXPECT_EQ(mit.key(), "c");
+}
+
+TEST(MergingIterator, SeekPastEnd) {
+    auto iters = make_iters({{{"a", "1"}, {"b", "2"}}});
+    lsm::MergingIterator mit(std::move(iters));
+
+    mit.seek("z");
+    EXPECT_FALSE(mit.valid());
+}
+
+TEST(MergingIterator, ThreeSources) {
+    auto iters = make_iters({
+        {{"a", "1"}, {"d", "4"}},
+        {{"b", "2"}, {"e", "5"}},
+        {{"c", "3"}, {"f", "6"}}
+    });
+
+    lsm::MergingIterator mit(std::move(iters));
+
+    std::vector<std::string> keys;
+    while (mit.valid()) {
+        keys.push_back(std::string(mit.key()));
+        mit.next();
+    }
+
+    EXPECT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d", "e", "f"}));
 }

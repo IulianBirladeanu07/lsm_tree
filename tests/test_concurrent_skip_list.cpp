@@ -1,27 +1,104 @@
+#include <gtest/gtest.h>
+#include <thread>
+#include <vector>
+#include <atomic>
 #include "lsm/memtable/concurrent_skip_list.h"
-#include <cassert>
-#include <iostream>
 
-int main() {
+TEST(ConcurrentSkipList, PutAndGet) {
     lsm::ConcurrentSkipList sl;
     sl.put("a", "1");
-    assert(sl.get("a") == "1");
+    sl.put("b", "2");
+    sl.put("c", "3");
 
-    lsm::ConcurrentSkipList skiplist;
-    skiplist.put("b", "2");
-    skiplist.put("c", "3");
-    skiplist.put("d", "4");
-    skiplist.put("e", "5");
-    skiplist.put("f", "6");
-    skiplist.put("g", "7");
-    skiplist.put("h", "8");
+    EXPECT_EQ(sl.get("a"), "1");
+    EXPECT_EQ(sl.get("b"), "2");
+    EXPECT_EQ(sl.get("c"), "3");
+}
 
-    assert(skiplist.get("b") == "2");
-    assert(skiplist.get("e") == "5");
+TEST(ConcurrentSkipList, GetMissingKey) {
+    lsm::ConcurrentSkipList sl;
+    sl.put("a", "1");
+    EXPECT_EQ(sl.get("missing"), std::nullopt);
+}
 
-    assert(skiplist.contains("c"));
-    assert(!skiplist.contains("x"));
+TEST(ConcurrentSkipList, UpdateExistingKey) {
+    lsm::ConcurrentSkipList sl;
+    sl.put("key", "old");
+    sl.put("key", "new");
+    EXPECT_EQ(sl.get("key"), "new");
+}
 
-    std::cout << "all tests passed\n";
-    return 0;
+TEST(ConcurrentSkipList, Contains) {
+    lsm::ConcurrentSkipList sl;
+    sl.put("a", "1");
+    EXPECT_TRUE(sl.contains("a"));
+    EXPECT_FALSE(sl.contains("b"));
+}
+
+TEST(ConcurrentSkipList, Size) {
+    lsm::ConcurrentSkipList sl;
+    EXPECT_EQ(sl.size(), 0u);
+    sl.put("a", "1");
+    sl.put("b", "2");
+    EXPECT_EQ(sl.size(), 2u);
+}
+
+TEST(ConcurrentSkipList, IteratorOrder) {
+    lsm::ConcurrentSkipList sl;
+    sl.put("c", "3");
+    sl.put("a", "1");
+    sl.put("b", "2");
+
+    auto it = sl.begin();
+    ASSERT_TRUE(it.valid());
+    EXPECT_EQ(it.key(), "a");
+    it.next();
+    EXPECT_EQ(it.key(), "b");
+    it.next();
+    EXPECT_EQ(it.key(), "c");
+    it.next();
+    EXPECT_FALSE(it.valid());
+}
+
+TEST(ConcurrentSkipList, SeekExact) {
+    lsm::ConcurrentSkipList sl;
+    sl.put("a", "1");
+    sl.put("b", "2");
+    sl.put("c", "3");
+
+    auto it = sl.seek("b");
+    ASSERT_TRUE(it.valid());
+    EXPECT_EQ(it.key(), "b");
+}
+
+TEST(ConcurrentSkipList, SeekPastEnd) {
+    lsm::ConcurrentSkipList sl;
+    sl.put("a", "1");
+
+    auto it = sl.seek("z");
+    EXPECT_FALSE(it.valid());
+}
+
+TEST(ConcurrentSkipList, ConcurrentReads) {
+    lsm::ConcurrentSkipList sl;
+    for (int i = 0; i < 100; i++) {
+        sl.put("key_" + std::to_string(i), std::to_string(i));
+    }
+
+    std::vector<std::thread> threads;
+    std::atomic<int> failures{0};
+
+    for (int t = 0; t < 8; t++) {
+        threads.emplace_back([&sl, &failures] {
+            for (int i = 0; i < 100; i++) {
+                auto r = sl.get("key_" + std::to_string(i));
+                if (!r || *r != std::to_string(i)) {
+                    failures.fetch_add(1);
+                }
+            }
+        });
+    }
+
+    for (auto& t : threads) t.join();
+    EXPECT_EQ(failures.load(), 0);
 }
