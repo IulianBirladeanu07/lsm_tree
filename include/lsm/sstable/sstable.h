@@ -17,11 +17,14 @@ public:
 
     std::optional<std::string> get(std::string_view key) const;
 
-    std::size_t      file_size()    const { return file_size_; }
+    std::size_t file_size() const { return file_size_; }
     std::string_view smallest_key() const { return index_.entries().front().first_key; }
-    std::string_view largest_key()  const { return index_.entries().back().last_key; }
-    
-    uint64_t         file_id()      const { return file_id_; }
+    std::string_view largest_key() const { return index_.entries().back().last_key; }
+
+    uint64_t file_id() const { return file_id_; }
+    Block get_block(std::size_t idx) const;
+    const IndexBlock& index() const;
+
     SSTable(SSTable&&) = default;
     SSTable& operator=(SSTable&&) = default;
     ~SSTable();
@@ -29,13 +32,13 @@ public:
 private:
     SSTable() = default;
 
-    Block       read_block(const IndexEntry& entry) const;
+    Block read_block(const IndexEntry& entry) const;
 
-    int         fd_{-1};
-    uint64_t    file_id_{0};
+    int fd_{-1};
+    uint64_t file_id_{0};
     std::size_t file_size_{0};
-    IndexBlock  index_;
-    Footer      footer_{};
+    IndexBlock index_;
+    Footer footer_{};
     std::optional<BloomFilter> filter_;
 
 };

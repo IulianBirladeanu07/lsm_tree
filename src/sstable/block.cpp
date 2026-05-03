@@ -45,4 +45,8 @@ std::size_t Block::size() const {
     return data_.size();
 }
 
+const std::vector<uint8_t>& Block::data() const {
+    return data_;
+}
+
 } // namespace lsm

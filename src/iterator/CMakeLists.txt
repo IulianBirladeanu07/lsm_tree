@@ -1,5 +1,7 @@
 add_library(lsm_iterator
     merging_iterator.cpp
+    sstable_iterator.cpp
+    block_iterator.cpp
 )
 
 target_include_directories(lsm_iterator PUBLIC ${PROJECT_SOURCE_DIR}/include)

@@ -30,3 +30,13 @@ target_link_libraries(test_merging_iterator lsm_iterator)
 
 add_executable(test_thread_pool test_thread_pool.cpp)
 target_link_libraries(test_thread_pool lsm_compaction)
+
+add_executable(test_sstable_iterator test_sstable_iterator.cpp)
+target_link_libraries(test_sstable_iterator lsm_iterator)
+
+add_executable(test_block_iterator test_block_iterator.cpp)
+target_link_libraries(test_block_iterator lsm_iterator)
+
+add_executable(test_compaction_strategy test_compaction_strategy.cpp)
+target_link_libraries(test_compaction_strategy lsm_compaction lsm_levels)
+

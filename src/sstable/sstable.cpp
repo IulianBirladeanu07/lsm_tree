@@ -74,4 +74,12 @@ std::optional<std::string> SSTable::get(std::string_view key) const {
     return std::nullopt;
 }
 
+Block SSTable::get_block(std::size_t idx) const {
+    return read_block(index_.entries()[idx]);
+}
+
+const IndexBlock& SSTable::index() const {
+    return index_;
+}
+
 } // namespace lsm
