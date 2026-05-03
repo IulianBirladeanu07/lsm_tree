@@ -5,42 +5,47 @@ skinparam roundCorner 8
 skinparam shadowing false
 
 class CompactionScheduler {
+  + CompactionScheduler(strategy, levels, thread_pool, path_generator)
   + schedule() : void
-  + cancel_all() : void
-  + set_strategy(strategy) : void
-  - pool_ : ThreadPool
+  - run_compaction(job: CompactionJob) : void
   - strategy_ : unique_ptr<ICompactionStrategy>
+  - levels_ : shared_ptr<LevelManager>
+  - thread_pool_ : shared_ptr<ThreadPool>
+  - path_generator_ : function<string()>
 }
 
 interface ICompactionStrategy {
-  + pick_job(levels) : CompactionJob
-  + score(level) : double
+  + pick_job(levels: LevelManager) : CompactionJob
+  + score(level: int, levels: LevelManager) : double
 }
 
 class LeveledCompaction {
-  + pick_job(levels) : CompactionJob
-  + score(level) : double
-  - max_bytes_for_level_ : vector<size_t>
+  + pick_job(levels: LevelManager) : CompactionJob
+  + score(level: int, levels: LevelManager) : double
+  - base_bytes_ : size_t
+  - multiplier_ : int
 }
 
 class TieredCompaction {
-  + pick_job(levels) : CompactionJob
-  + score(level) : double
-  - size_ratio_ : double
+  + pick_job(levels: LevelManager) : CompactionJob
+  + score(level: int, levels: LevelManager) : double
+  - size_ratio_ : int
 }
 
-class CompactionJob {
-  + input_files : vector<SSTable>
+struct CompactionJob {
+  + inputs : vector<shared_ptr<SSTable>>
   + output_level : int
-  + sequence_number : uint64_t
+  + output_path : string
 }
 
 class ThreadPool {
-  + submit(task) : future<void>
+  + submit(task: function<void()>) : void
   + shutdown() : void
   - workers_ : vector<jthread>
-  - queue_ : deque<function<void()>>
-  - mu_ : mutex
+  - tasks_ : deque<function<void()>>
+  - queue_mutex_ : mutex
+  - condition_ : condition_variable
+  - stop_ : atomic<bool>
 }
 
 CompactionScheduler *-- ThreadPool

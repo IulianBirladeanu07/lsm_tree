@@ -13,30 +13,68 @@ interface IIterator {
 }
 
 class MergingIterator {
-  + seek(key) : void
+  + seek(key: string_view) : void
   + next() : void
   + valid() : bool
+  + key() : string_view
+  + value() : string_view
   - heap_ : priority_queue<IIterator*>
+  - children_ : vector<unique_ptr<IIterator>>
 }
 
 class SkipListIterator {
-  + seek(key) : void
+  + seek(key: string_view) : void
   + next() : void
   + valid() : bool
-  - current_ : Node*
+  + key() : string_view
+  + value() : string_view
+  - list_ : const ConcurrentSkipList&
+  - iter_ : Iterator
 }
 
 class SSTableIterator {
-  + seek(key) : void
+  + seek(key: string_view) : void
   + next() : void
   + valid() : bool
+  + key() : string_view
+  + value() : string_view
   - sst_ : const SSTable&
   - block_idx_ : size_t
+  - current_block_ : optional<Block>
+  - block_iter_ : optional<BlockIterator>
 }
+
+class BlockIterator {
+  + seek(key: string_view) : void
+  + next() : void
+  + valid() : bool
+  + key() : string_view
+  + value() : string_view
+  - block_ : const Block&
+  - offset_ : size_t
+  - current_key_ : string
+  - current_value_ : string
+  - valid_ : bool
+}
+
+note right of MergingIterator
+  Min-heap merge over N sources.
+  Used by scan() and compaction.
+  Deduplication and tombstone
+  filtering done by caller.
+end note
+
+note right of SkipListIterator
+  Wraps ConcurrentSkipList::Iterator
+  as IIterator for use in
+  MergingIterator during scan().
+end note
 
 SkipListIterator  ..|> IIterator
 SSTableIterator   ..|> IIterator
+BlockIterator     ..|> IIterator
 MergingIterator   ..|> IIterator
 MergingIterator   o-- IIterator : aggregates
+SSTableIterator   *-- BlockIterator : uses
 
 @enduml

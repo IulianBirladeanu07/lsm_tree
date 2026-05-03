@@ -8,64 +8,97 @@ class LSMTree << (F,#C4B5FD) >> {
   + put(key: string_view, value: string_view) : void
   + get(key: string_view) : optional<string>
   + del(key: string_view) : void
-  + scan(start, end) : vector<KV>
-  + get_snapshot() : Snapshot
+  + scan(start: string_view, end: string_view) : vector<KV>
+  - flush_memtable(old_mem: shared_ptr<MemTable>) : void
+  - next_sst_path() : string
+  - mem_ : atomic<shared_ptr<MemTable>>
+  - imm_ : vector<shared_ptr<MemTable>>
+  - imm_mu_ : shared_mutex
+  - sst_counter_ : atomic<uint64_t>
+}
+
+struct KV {
+  + key : string
+  + value : string
 }
 
 class WAL {
-  + append(key, value, type) : void
+  + append(key: string_view, value: string_view) : void
+  + remove(key: string_view) : void
   + recover() : vector<LogEntry>
+  + truncate() : void
   + sync() : void
+  + close() : void
   - fd_ : int
   - path_ : fs::path
+  - sync_writes_ : bool
+}
+
+struct LogEntry {
+  + key : string
+  + value : string
+  + is_delete : bool
 }
 
 class MemTable {
-  + insert(key, value) : void
-  + get(key) : optional<string>
-  + iterator() : unique_ptr<IIterator>
-  + size_bytes() : size_t
+  + put(key: string_view, value: string_view) : void
+  + get(key: string_view) : optional<string>
+  + contains(key: string_view) : bool
   + is_full() : bool
+  + is_mutable() : bool
+  + try_mark_flushing() : bool
+  + iterator() : Iterator
+  + iiterator() : unique_ptr<IIterator>
   - size_ : atomic<size_t>
+  - capacity_ : size_t
+  - writable_ : atomic<bool>
+  - flushing_ : atomic<bool>
 }
 
 class ConcurrentSkipList {
-  + insert(key, value) : void
-  + find(key) : optional<string>
-  + iterator() : unique_ptr<IIterator>
+  + put(key: string_view, value: string_view) : optional<string>
+  + get(key: string_view) : optional<string>
+  + contains(key: string_view) : bool
+  + begin() : Iterator
+  + seek(key: string_view) : Iterator
+  + size() : size_t
   - head_ : atomic<Node*>
   - height_ : atomic<int>
-  - size_ : atomic<size_t>
+  - elements_ : atomic<int>
 }
 
 class LevelManager {
-  + add_sstable(level, sst) : void
-  + pick_compaction(strategy) : CompactionJob
-  + get_level(n) : vector<SSTable>
-  + num_levels() : size_t
-  - levels_ : vector<vector<SSTable>>
-  - mu_ : shared_mutex
+  + add_sstable(level: int, sst: shared_ptr<SSTable>) : void
+  + replace_level(inputs, outputs, output_level: int) : void
+  + get_level(level: int) : vector<shared_ptr<SSTable>>
+  + num_levels() : int
+  - levels_ : vector<vector<shared_ptr<SSTable>>>
+  - mutex_ : shared_mutex
 }
 
-class Options {
-  + memtable_size_bytes : size_t
+class LSMOptions {
+  + memtable_size : size_t
+  + block_cache_size : size_t
   + num_levels : int
-  + level0_compaction_trigger : int
-  + bloom_false_positive_rate : double
-  + block_size : size_t
+  + compaction_threads : int
   + sync_writes : bool
+  + bloom_fpr : double
+  + block_size : size_t
+  + compaction_style : CompactionStyle
 }
 
-class Snapshot {
-  + sequence_number : uint64_t
-  - refcount_ : atomic<int>
+enum CompactionStyle {
+  Leveled
+  Tiered
 }
 
 LSMTree *-- WAL
 LSMTree *-- MemTable
 LSMTree *-- LevelManager
-LSMTree ..> Options
-LSMTree ..> Snapshot
+LSMTree ..> LSMOptions
+LSMTree ..> KV
+WAL ..> LogEntry
 MemTable *-- ConcurrentSkipList
+LSMOptions ..> CompactionStyle
 
 @enduml

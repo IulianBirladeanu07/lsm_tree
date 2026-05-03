@@ -5,49 +5,102 @@ skinparam roundCorner 8
 skinparam shadowing false
 
 class SSTable {
-  + open(path) : SSTable
-  + get(key) : optional<string>
-  + iterator() : unique_ptr<IIterator>
+  + open(path: fs::path) : SSTable
+  + get(key: string_view) : optional<string>
+  + get_block(idx: size_t) : Block
+  + index() : const IndexBlock&
   + file_size() : size_t
-  - data_blocks_ : vector<Block>
-  - index_block_ : IndexBlock
-  - filter_block_ : FilterBlock
+  + file_id() : uint64_t
+  + smallest_key() : string_view
+  + largest_key() : string_view
+  - fd_ : int
+  - file_id_ : uint64_t
+  - file_size_ : size_t
+  - filter_ : optional<BloomFilter>
 }
 
 class SSTableBuilder {
-  + add(key, value) : void
+  + add(key: string_view, value: string_view) : void
   + finish() : SSTable
   + estimated_size() : size_t
-  - current_block_ : BlockBuilder
-  - filter_ : BloomFilter
+  - flush_block() : void
+  - fd_ : int
+  - offset_ : uint64_t
+  - first_key_ : string
+  - last_key_ : string
 }
 
 class Block {
-  + get(key) : optional<string>
-  + iterator() : unique_ptr<IIterator>
-  - data_ : span<const byte>
+  + get(key: string_view) : optional<string>
+  + read_uint32(offset: size_t) : uint32_t
+  + size() : size_t
+  + data() : const vector<uint8_t>&
+  - data_ : vector<uint8_t>
+}
+
+class BlockBuilder {
+  + add(key: string_view, value: string_view) : void
+  + finish() : vector<uint8_t>
+  + is_full() : bool
+  + current_size() : size_t
+  + reset() : void
+  - buffer_ : vector<uint8_t>
+  - block_size_ : size_t
+}
+
+class IndexBlock {
+  + add(first_key, last_key, offset, size) : void
+  + serialize() : vector<uint8_t>
+  + deserialize(data: span<uint8_t>) : IndexBlock
+  + entries() : const vector<IndexEntry>&
+  - entries_ : vector<IndexEntry>
+}
+
+struct IndexEntry {
+  + first_key : string
+  + last_key : string
+  + offset : uint64_t
+  + size : uint64_t
+}
+
+struct Footer {
+  + index_offset : uint64_t
+  + filter_offset : uint64_t
+  + magic : uint64_t
+  + serialize() : vector<uint8_t>
+  + deserialize(data) : Footer
 }
 
 class BloomFilter {
-  + add(key) : void
-  + may_contain(key) : bool
-  + serialize() : vector<byte>
-  + deserialize(data) : BloomFilter
-  - bits_ : vector<bool>
+  + add(key: string_view) : void
+  + may_contain(key: string_view) : bool
+  + serialize() : vector<uint8_t>
+  + deserialize(data: span<uint8_t>) : BloomFilter
   - num_hashes_ : size_t
+  - bits_ : vector<uint8_t>
 }
 
 class BlockCache {
-  + lookup(file_id, offset) : optional<Block>
-  + insert(file_id, offset, block) : void
+  + get(file_id: uint64_t, offset: uint64_t) : optional<Block>
+  + put(file_id: uint64_t, offset: uint64_t, block: Block) : void
   + capacity() : size_t
-  - mu_ : mutex
+  + usage() : size_t
+  - lru_ : list<pair<Key, Block>>
+  - table_ : unordered_map<Key, iterator>
   - capacity_ : size_t
+  - usage_ : size_t
+  - mutex_ : mutex
 }
 
-SSTable *-- Block
+SSTable *-- IndexBlock
+SSTable *-- Footer
 SSTable *-- BloomFilter
-SSTable ..> BlockCache : uses
+SSTable ..> Block : reads
 SSTableBuilder ..> SSTable : creates
+SSTableBuilder *-- BlockBuilder
+SSTableBuilder *-- IndexBlock
+SSTableBuilder *-- BloomFilter
+IndexBlock *-- IndexEntry
+Block ..> BlockCache : cached via
 
 @enduml
