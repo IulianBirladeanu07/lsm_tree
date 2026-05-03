@@ -13,12 +13,14 @@
 #include <string>
 #include <vector>
 
-static constexpr int    kNumKeys      = 100'000;
-static constexpr int    kKeySize      = 24;
-static constexpr int    kValueSize    = 128;
-static constexpr int    kWarmupOps    = 5'000;
-static constexpr int    kBenchOps     = 50'000;
-static constexpr size_t kMemtableSize = 32 * 1024 * 1024;
+static constexpr int    kNumKeys         = 100'000;
+static constexpr int    kKeySize         = 24;
+static constexpr int    kValueSize       = 128;
+static constexpr int    kWarmupOps       = 5'000;
+static constexpr int    kBenchOps        = 50'000;
+static constexpr size_t kMemtableSize    = 32 * 1024 * 1024;
+static constexpr int    kSqliteBatchSize = 100;
+
 
 using Clock = std::chrono::steady_clock;
 using Nanos = std::chrono::nanoseconds;
@@ -214,23 +216,44 @@ void run_sqlite_workload(const WorkloadDef& wl,
     SqliteHandle db(db_path);
 
     auto warmup_ops = build_ops(wl, population, kWarmupOps, rng);
+    int warmup_pending = 0;
+    sqlite3_exec(db.db, "BEGIN;", nullptr, nullptr, nullptr);
     for (auto& [op, id] : warmup_ops) {
-        if (op == "write") db.put(make_key(id), make_value(id));
-        else               db.get(make_key(id));
+        if (op == "write") {
+            db.put(make_key(id), make_value(id));
+            if (++warmup_pending >= kSqliteBatchSize) {
+                sqlite3_exec(db.db, "COMMIT; BEGIN;", nullptr, nullptr, nullptr);
+                warmup_pending = 0;
+            }
+        } else {
+            db.get(make_key(id));
+        }
     }
+    sqlite3_exec(db.db, "COMMIT;", nullptr, nullptr, nullptr);
 
     auto ops = build_ops(wl, population, kBenchOps, rng);
     std::vector<Sample> samples;
     samples.reserve(ops.size());
 
+    int pending_writes = 0;
+    sqlite3_exec(db.db, "BEGIN;", nullptr, nullptr, nullptr);
+
     auto t_start = Clock::now();
     for (auto& [op, id] : ops) {
         auto t0 = Clock::now();
-        if (op == "write") db.put(make_key(id), make_value(id));
-        else               db.get(make_key(id));
+        if (op == "write") {
+            db.put(make_key(id), make_value(id));
+            if (++pending_writes >= kSqliteBatchSize) {
+                sqlite3_exec(db.db, "COMMIT; BEGIN;", nullptr, nullptr, nullptr);
+                pending_writes = 0;
+            }
+        } else {
+            db.get(make_key(id));
+        }
         auto t1 = Clock::now();
         samples.push_back({op, std::chrono::duration_cast<Nanos>(t1 - t0).count()});
     }
+    sqlite3_exec(db.db, "COMMIT;", nullptr, nullptr, nullptr);
     auto t_end = Clock::now();
     double elapsed = std::chrono::duration<double>(t_end - t_start).count();
 

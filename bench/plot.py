@@ -117,7 +117,7 @@ def main():
         f"Keys: 100,000 × 24B key / 128B value\n"
         f"Benchmark ops: 50,000 (after 5,000 warmup)\n"
         f"LSM memtable: 32 MB\n"
-        f"SQLite: WAL mode, synchronous=NORMAL, prepared stmts"
+        f"SQLite: WAL mode, synchronous=NORMAL, prepared stmts, batch=100 writes/txn"
     )
     axes[1][2].text(0.05, 0.95, note, transform=axes[1][2].transAxes,
                     fontsize=8.5, verticalalignment="top",
