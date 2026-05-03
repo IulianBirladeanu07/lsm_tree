@@ -31,7 +31,7 @@ int main() {
 
         tree.del("b");
         auto r5 = tree.get("b");
-        assert(!r5 || *r5 == "\xFF");
+        assert(!r5);
         std::cout << "delete: OK\n";
     }
 

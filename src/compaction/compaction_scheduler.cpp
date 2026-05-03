@@ -1,4 +1,5 @@
 #include "lsm/compaction/compaction_scheduler.h"
+#include "lsm/lsm_tree.h"
 #include "lsm/iterator/sstable_iterator.h"
 #include "lsm/sstable/sstable_builder.h"
 #include "lsm/sstable/sstable.h"
@@ -41,7 +42,7 @@ void CompactionScheduler::run_compaction(const CompactionJob& job) {
                            job.inputs.size() * 100, 0.01);
 
     while (merged.valid()) {
-        if (merged.value() != "\xFF") {
+        if (merged.value() != kTombstone) {
             builder.add(merged.key(), merged.value());
         }
         merged.next();

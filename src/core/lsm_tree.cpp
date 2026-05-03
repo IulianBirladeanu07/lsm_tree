@@ -72,13 +72,13 @@ void LSMTree::del(std::string_view key) {
 }
 
 void LSMTree::flush_memtable(std::shared_ptr<MemTable> old_mem) {
-    auto new_mem = std::make_shared<MemTable>(opts_.memtable_size);
-    std::atomic_store(&mem_, new_mem);
-
     {
         std::unique_lock lock(imm_mu_);
         imm_.push_back(old_mem);
     }
+
+    auto new_mem = std::make_shared<MemTable>(opts_.memtable_size);
+    std::atomic_store(&mem_, new_mem);
 
     thread_pool_->submit([this, old_mem] {
         auto path = next_sst_path();

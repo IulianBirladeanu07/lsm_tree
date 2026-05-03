@@ -7,7 +7,12 @@ void MemTable::put(std::string_view key, std::string_view value) {
 
     auto old_value = skip_list_.put(key, value);
     if (old_value.has_value()) {
-        size_.fetch_add(value.size() - old_value->size(), std::memory_order_acq_rel);
+        auto delta = static_cast<int64_t>(value.size()) - static_cast<int64_t>(old_value->size());
+        if (delta > 0) {
+            size_.fetch_add(delta, std::memory_order_acq_rel);
+        } else {
+            size_.fetch_sub(-delta, std::memory_order_acq_rel);
+        }
     } else {
         size_.fetch_add(key.size() + value.size(), std::memory_order_acq_rel);
     }
