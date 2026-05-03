@@ -22,6 +22,7 @@ public:
     void append(std::string_view key, std::string_view value);
     void remove(std::string_view key);
     std::vector<LogEntry> recover();
+    void truncate();
     void sync();
     void close();
 

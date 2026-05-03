@@ -156,10 +156,10 @@ void LSMTree::flush_memtable(std::shared_ptr<MemTable> old_mem) {
 
         {
             std::unique_lock lock(imm_mu_);
-            imm_.erase(std::remove(imm_.begin(), imm_.end(), old_mem),
-                       imm_.end());
+            imm_.erase(std::remove(imm_.begin(), imm_.end(), old_mem), imm_.end());
         }
 
+        wal_->truncate();
         compaction_->schedule();
     });
 }

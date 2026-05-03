@@ -127,4 +127,15 @@ std::vector<LogEntry> WAL::recover() {
     return entries;
 }
 
+void WAL::truncate() {
+    std::lock_guard lock(mu_);
+    if (fd_ >= 0) {
+        ::close(fd_);
+        fd_ = -1;
+    }
+    fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd_ < 0)
+        throw std::runtime_error("WAL: truncate reopen failed: " + path_.string());
+}
+
 } // namespace lsm
