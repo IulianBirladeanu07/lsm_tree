@@ -45,6 +45,18 @@ public:
         return Iterator{first};
     }
 
+    Iterator seek(std::string_view key) const {
+        const Node* current = head_.load(std::memory_order_acquire);
+        for (int i = height_.load(std::memory_order_relaxed) - 1; i >= 0; i--) {
+            const Node* candidate = current->next[i].load(std::memory_order_acquire);
+            while (candidate != nullptr && candidate->key < key) {
+                current = candidate;
+                candidate = current->next[i].load(std::memory_order_acquire);
+            }
+        }
+        return Iterator{current->next[0].load(std::memory_order_acquire)};
+    }
+
     ConcurrentSkipList() : head_(new Node("", "", kMaxHeight)), height_(1), elements_(0), rng_(std::random_device{}()) {}
     ~ConcurrentSkipList() {
         Node* current = head_.load(std::memory_order_relaxed);

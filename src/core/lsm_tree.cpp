@@ -1,6 +1,8 @@
 #include "lsm/lsm_tree.h"
 #include "lsm/compaction/leveled_compaction.h"
 #include "lsm/compaction/tiered_compaction.h"
+#include "lsm/iterator/merging_iterator.h"
+#include "lsm/iterator/sstable_iterator.h"
 #include "lsm/sstable/sstable_builder.h"
 #include "lsm/sstable/sstable.h"
 #include <algorithm>
@@ -13,7 +15,17 @@ LSMTree::LSMTree(std::filesystem::path dir, LSMOptions opts)
     , opts_(opts) {
     std::filesystem::create_directories(dir_);
     wal_ = std::make_unique<WAL>(dir_ / "wal.log", opts_.sync_writes);
-    mem_.store(std::make_shared<MemTable>(opts_.memtable_size));
+
+    auto initial_mem = std::make_shared<MemTable>(opts_.memtable_size);
+    auto entries = wal_->recover();
+    for (const auto& entry : entries) {
+        if (entry.is_delete)
+            initial_mem->put(entry.key, kTombstone);
+        else
+            initial_mem->put(entry.key, entry.value);
+    }
+    mem_.store(initial_mem);
+
     levels_ = std::make_shared<LevelManager>(opts_.num_levels);
     thread_pool_ = std::make_shared<ThreadPool>(opts_.compaction_threads);
 
@@ -77,6 +89,47 @@ void LSMTree::del(std::string_view key) {
     wal_->remove(key);
     auto mem = std::atomic_load(&mem_);
     mem->put(key, kTombstone);
+}
+
+std::vector<KV> LSMTree::scan(std::string_view start, std::string_view end) const {
+    std::vector<std::unique_ptr<IIterator>> iters;
+
+    auto mem = std::atomic_load(&mem_);
+    iters.push_back(mem->iiterator());
+
+    {
+        std::shared_lock lock(imm_mu_);
+        for (auto& imm : imm_) {
+            iters.push_back(imm->iiterator());
+        }
+    }
+
+    for (int level = 0; level < levels_->num_levels(); ++level) {
+        auto sstables = levels_->get_level(level);
+        for (auto& sst : sstables) {
+            iters.push_back(std::make_unique<SSTableIterator>(*sst));
+        }
+    }
+
+    MergingIterator merged(std::move(iters));
+    merged.seek(start);
+
+    std::vector<KV> results;
+    std::string last_key;
+
+    while (merged.valid() && merged.key() <= end) {
+        std::string_view key = merged.key();
+        std::string_view value = merged.value();
+
+        if (key != last_key && value != kTombstone) {
+            results.push_back({std::string(key), std::string(value)});
+            last_key.assign(key);
+        }
+
+        merged.next();
+    }
+
+    return results;
 }
 
 void LSMTree::flush_memtable(std::shared_ptr<MemTable> old_mem) {

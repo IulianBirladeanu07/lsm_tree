@@ -32,6 +32,11 @@ struct LSMOptions {
     CompactionStyle  compaction_style   = CompactionStyle::Leveled;
 };
 
+struct KV {
+    std::string key;
+    std::string value;
+};
+
 class LSMTree {
 public:
     explicit LSMTree(std::filesystem::path dir, LSMOptions opts = {});
@@ -40,6 +45,7 @@ public:
     void                       put(std::string_view key, std::string_view value);
     std::optional<std::string> get(std::string_view key) const;
     void                       del(std::string_view key);
+    std::vector<KV>            scan(std::string_view start, std::string_view end) const;
 
 private:
     void        flush_memtable(std::shared_ptr<MemTable> old_mem);
