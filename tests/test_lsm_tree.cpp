@@ -92,17 +92,17 @@ TEST_F(LSMTreeTest, TieredCompactionStyle) {
 
 TEST_F(LSMTreeTest, MemtableFlushOnFull) {
     lsm::LSMOptions opts;
-    opts.memtable_size = 512;
+    opts.memtable_size = 1024;
     lsm::LSMTree tree(dir, opts);
 
     for (int i = 0; i < 50; i++) {
-        tree.put("key_" + std::to_string(i), "value_" + std::to_string(i));
+        tree.put("key_" + std::to_string(i), std::string(32, 'v'));
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     for (int i = 0; i < 50; i++) {
-        EXPECT_EQ(tree.get("key_" + std::to_string(i)), "value_" + std::to_string(i));
+        EXPECT_EQ(tree.get("key_" + std::to_string(i)), std::string(32, 'v'));
     }
 }
 

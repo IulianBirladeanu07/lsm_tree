@@ -4,10 +4,12 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include "lsm/sstable/block.h"
 #include "lsm/sstable/index_block.h"
 #include "lsm/sstable/footer.h"
 #include "lsm/util/bloom_filter.h"
+#include <unistd.h>
 
 namespace lsm {
 
@@ -29,8 +31,27 @@ public:
     Block get_block(std::size_t idx) const;
     const IndexBlock& index() const;
 
-    SSTable(SSTable&&) = default;
-    SSTable& operator=(SSTable&&) = default;
+    SSTable(SSTable&& other) noexcept
+        : fd_(std::exchange(other.fd_, -1))
+        , file_id_(other.file_id_)
+        , file_size_(other.file_size_)
+        , index_(std::move(other.index_))
+        , footer_(other.footer_)
+        , filter_(std::move(other.filter_)) {}
+
+    SSTable& operator=(SSTable&& other) noexcept {
+        if (this != &other) {
+            if (fd_ >= 0) ::close(fd_);
+            fd_        = std::exchange(other.fd_, -1);
+            file_id_   = other.file_id_;
+            file_size_ = other.file_size_;
+            index_     = std::move(other.index_);
+            footer_    = other.footer_;
+            filter_    = std::move(other.filter_);
+        }
+        return *this;
+    }
+
     ~SSTable();
 
 private:
@@ -44,6 +65,6 @@ private:
     IndexBlock index_;
     Footer footer_{};
     std::optional<BloomFilter> filter_;
-
 };
+
 } // namespace lsm
