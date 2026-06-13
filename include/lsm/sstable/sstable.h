@@ -1,11 +1,13 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include "lsm/sstable/block.h"
+#include "lsm/sstable/block_cache.h"
 #include "lsm/sstable/index_block.h"
 #include "lsm/sstable/footer.h"
 #include "lsm/util/bloom_filter.h"
@@ -15,7 +17,8 @@ namespace lsm {
 
 class SSTable {
 public:
-    static SSTable open(std::filesystem::path path);
+    static SSTable open(std::filesystem::path path,
+                        std::shared_ptr<BlockCache> cache = nullptr);
 
     std::optional<std::string> get(std::string_view key) const;
 
@@ -37,7 +40,8 @@ public:
         , file_size_(other.file_size_)
         , index_(std::move(other.index_))
         , footer_(other.footer_)
-        , filter_(std::move(other.filter_)) {}
+        , filter_(std::move(other.filter_))
+        , cache_(std::move(other.cache_)) {}
 
     SSTable& operator=(SSTable&& other) noexcept {
         if (this != &other) {
@@ -48,6 +52,7 @@ public:
             index_     = std::move(other.index_);
             footer_    = other.footer_;
             filter_    = std::move(other.filter_);
+            cache_     = std::move(other.cache_);
         }
         return *this;
     }
@@ -65,6 +70,7 @@ private:
     IndexBlock index_;
     Footer footer_{};
     std::optional<BloomFilter> filter_;
+    std::shared_ptr<BlockCache> cache_;
 };
 
 } // namespace lsm

@@ -5,6 +5,7 @@
 #include "lsm/levels/level_manager.h"
 #include "lsm/compaction/compaction_scheduler.h"
 #include "lsm/compaction/thread_pool.h"
+#include "lsm/sstable/block_cache.h"
 
 #include <atomic>
 #include <shared_mutex>
@@ -60,6 +61,7 @@ private:
     std::vector<std::shared_ptr<MemTable>> imm_;
     mutable std::shared_mutex              imm_mu_;
 
+    std::shared_ptr<BlockCache>          block_cache_;
     std::shared_ptr<LevelManager>        levels_;
     std::shared_ptr<ThreadPool>          thread_pool_;
     std::unique_ptr<CompactionScheduler> compaction_;

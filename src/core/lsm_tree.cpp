@@ -5,6 +5,7 @@
 #include "lsm/iterator/sstable_iterator.h"
 #include "lsm/sstable/sstable_builder.h"
 #include "lsm/sstable/sstable.h"
+#include "lsm/sstable/block_cache.h"
 #include <algorithm>
 #include <format>
 
@@ -15,6 +16,8 @@ LSMTree::LSMTree(std::filesystem::path dir, LSMOptions opts)
     , opts_(opts) {
     std::filesystem::create_directories(dir_);
     wal_ = std::make_unique<WAL>(dir_ / "wal.log", opts_.sync_writes);
+
+    block_cache_ = std::make_shared<BlockCache>(opts_.block_cache_size);
 
     auto initial_mem = std::make_shared<MemTable>(opts_.memtable_size);
     auto entries = wal_->recover();
@@ -151,7 +154,9 @@ void LSMTree::flush_memtable(std::shared_ptr<MemTable> old_mem) {
             iter.next();
         }
 
-        auto sst = std::make_shared<SSTable>(builder.finish());
+        builder.finish();
+
+        auto sst = std::make_shared<SSTable>(SSTable::open(path, block_cache_));
         levels_->add_sstable(0, sst);
 
         {

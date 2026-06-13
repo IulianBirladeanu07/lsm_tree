@@ -14,8 +14,9 @@ SSTable::~SSTable() {
     }
 }
 
-SSTable SSTable::open(std::filesystem::path path) {
+SSTable SSTable::open(std::filesystem::path path, std::shared_ptr<BlockCache> cache) {
     SSTable sst;
+    sst.cache_ = std::move(cache);
 
     sst.fd_ = ::open(path.c_str(), O_RDONLY);
     if (sst.fd_ < 0) {
@@ -51,12 +52,20 @@ SSTable SSTable::open(std::filesystem::path path) {
 }
 
 Block SSTable::read_block(const IndexEntry& entry) const {
+    if (cache_) {
+        auto cached = cache_->get(file_id_, entry.offset);
+        if (cached) return std::move(*cached);
+    }
+
     std::vector<uint8_t> buf(entry.size);
     ssize_t n = ::pread(fd_, buf.data(), entry.size, static_cast<off_t>(entry.offset));
     if (n < 0 || static_cast<uint64_t>(n) != entry.size) {
         throw std::runtime_error("SSTable::read_block: pread failed");
     }
-    return Block(std::move(buf));
+
+    Block block(std::move(buf));
+    if (cache_) cache_->put(file_id_, entry.offset, block);
+    return block;
 }
 
 std::optional<std::string> SSTable::get(std::string_view key) const {

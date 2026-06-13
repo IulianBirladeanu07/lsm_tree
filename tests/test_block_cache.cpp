@@ -1,5 +1,11 @@
 #include <gtest/gtest.h>
 #include "lsm/sstable/block_cache.h"
+#include "lsm/sstable/sstable.h"
+#include "lsm/sstable/sstable_builder.h"
+#include <chrono>
+#include <format>
+#include <filesystem>
+#include <cstdio>
 
 static lsm::Block make_block(uint8_t fill, std::size_t size) {
     return lsm::Block(std::vector<uint8_t>(size, fill));
@@ -57,4 +63,39 @@ TEST(BlockCache, CapacityAndUsage) {
 
     cache.put(1, 0, make_block(0xAA, 256));
     EXPECT_EQ(cache.usage(), 256u);
+}
+
+TEST(BlockCacheIntegration, CacheHitOnSecondRead) {
+    auto cache = std::make_shared<lsm::BlockCache>(64 * 1024 * 1024);
+
+    std::filesystem::path path = "/tmp/test_cache_integration.sst";
+
+    {
+        lsm::SSTableBuilder builder(path, 4096, 1000, 0.01);
+        for (int i = 0; i < 1000; i++) {
+            builder.add(std::format("key{:06d}", i), std::format("value{:06d}", i));
+        }
+        builder.finish();
+    }
+
+    auto sst = lsm::SSTable::open(path, cache);
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < 1000; i++) {
+        sst.get(std::format("key{:06d}", i));
+    }
+    auto cold = std::chrono::high_resolution_clock::now() - t1;
+
+    auto t2 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < 1000; i++) {
+        sst.get(std::format("key{:06d}", i));
+    }
+    auto warm = std::chrono::high_resolution_clock::now() - t2;
+
+    printf("cold: %ldms\n", std::chrono::duration_cast<std::chrono::milliseconds>(cold).count());
+    printf("warm: %ldms\n", std::chrono::duration_cast<std::chrono::milliseconds>(warm).count());
+
+    EXPECT_LT(warm, cold);
+
+    std::remove("/tmp/test_cache_integration.sst");
 }
