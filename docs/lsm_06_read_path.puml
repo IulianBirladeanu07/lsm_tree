@@ -1,0 +1,56 @@
+@startuml lsm_06_read_path
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam roundCorner 8
+skinparam shadowing false
+
+participant Client
+participant LSMTree
+participant MemTable as "MemTable\n(active)"
+participant ImmMemTable as "MemTable\n(immutable[])"
+participant SSTable_L0 as "SSTables\nLevel 0"
+participant SSTable_Ln as "SSTables\nLevel 1..N"
+participant BloomFilter
+participant Block
+
+Client -> LSMTree : get(key)
+
+LSMTree -> MemTable : get(key)
+alt found
+  MemTable --> LSMTree : value (or tombstone)
+  LSMTree --> Client : value / nullopt
+else not found
+  LSMTree -> ImmMemTable : get(key) newest-first
+  alt found
+    ImmMemTable --> LSMTree : value (or tombstone)
+    LSMTree --> Client : value / nullopt
+  else not found
+    loop each SSTable in L0 (all, may overlap)
+      LSMTree -> BloomFilter : may_contain(key)
+      alt bloom says no
+        BloomFilter --> LSMTree : false → skip
+      else
+        LSMTree -> SSTable_L0 : get(key)
+        SSTable_L0 -> Block : scan entries
+        Block --> LSMTree : value / nullopt
+        alt found
+          LSMTree --> Client : value / nullopt
+        end
+      end
+    end
+
+    loop each level L1..N (binary search on key range)
+      LSMTree -> BloomFilter : may_contain(key)
+      LSMTree -> SSTable_Ln : get(key)
+      SSTable_Ln -> Block : scan entries
+      alt found
+        Block --> LSMTree : value
+        LSMTree --> Client : value / nullopt
+      end
+    end
+
+    LSMTree --> Client : nullopt
+  end
+end
+
+@enduml

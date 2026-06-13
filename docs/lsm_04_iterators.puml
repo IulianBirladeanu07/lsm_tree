@@ -18,7 +18,7 @@ class MergingIterator {
   + valid() : bool
   + key() : string_view
   + value() : string_view
-  - heap_ : priority_queue<IIterator*>
+  - heap_ : priority_queue<IIterator*, IteratorComparator>
   - children_ : vector<unique_ptr<IIterator>>
 }
 
@@ -29,7 +29,7 @@ class SkipListIterator {
   + key() : string_view
   + value() : string_view
   - list_ : const ConcurrentSkipList&
-  - iter_ : Iterator
+  - iter_ : ConcurrentSkipList::Iterator
 }
 
 class SSTableIterator {
@@ -58,16 +58,9 @@ class BlockIterator {
 }
 
 note right of MergingIterator
-  Min-heap merge over N sources.
-  Used by scan() and compaction.
-  Deduplication and tombstone
-  filtering done by caller.
-end note
-
-note right of SkipListIterator
-  Wraps ConcurrentSkipList::Iterator
-  as IIterator for use in
-  MergingIterator during scan().
+  Min-heap cu IteratorComparator:
+  a->key() > b->key() (min la top)
+  Folosit în scan() și compaction.
 end note
 
 SkipListIterator  ..|> IIterator

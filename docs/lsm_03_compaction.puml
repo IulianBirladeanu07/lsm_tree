@@ -5,7 +5,7 @@ skinparam roundCorner 8
 skinparam shadowing false
 
 class CompactionScheduler {
-  + CompactionScheduler(strategy, levels, thread_pool, path_generator)
+  + CompactionScheduler(strategy, levels,\n  thread_pool, path_generator)
   + schedule() : void
   - run_compaction(job: CompactionJob) : void
   - strategy_ : unique_ptr<ICompactionStrategy>
@@ -26,11 +26,22 @@ class LeveledCompaction {
   - multiplier_ : int
 }
 
+note right of LeveledCompaction
+  score = total_size /
+  (base_bytes * multiplier^level)
+  Compactează dacă score > 1.0
+end note
+
 class TieredCompaction {
   + pick_job(levels: LevelManager) : CompactionJob
   + score(level: int, levels: LevelManager) : double
   - size_ratio_ : int
 }
+
+note right of TieredCompaction
+  score = num_files / size_ratio
+  Compactează dacă num_files >= size_ratio
+end note
 
 struct CompactionJob {
   + inputs : vector<shared_ptr<SSTable>>

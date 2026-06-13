@@ -16,6 +16,8 @@ class SSTable {
   - fd_ : int
   - file_id_ : uint64_t
   - file_size_ : size_t
+  - index_ : IndexBlock
+  - footer_ : Footer
   - filter_ : optional<BloomFilter>
 }
 
@@ -28,6 +30,9 @@ class SSTableBuilder {
   - offset_ : uint64_t
   - first_key_ : string
   - last_key_ : string
+  - current_block_ : BlockBuilder
+  - index_ : IndexBlock
+  - filter_ : BloomFilter
 }
 
 class Block {
@@ -86,7 +91,7 @@ class BlockCache {
   + capacity() : size_t
   + usage() : size_t
   - lru_ : list<pair<Key, Block>>
-  - table_ : unordered_map<Key, iterator>
+  - table_ : unordered_map<Key, iterator, PairHash>
   - capacity_ : size_t
   - usage_ : size_t
   - mutex_ : mutex
@@ -101,6 +106,10 @@ SSTableBuilder *-- BlockBuilder
 SSTableBuilder *-- IndexBlock
 SSTableBuilder *-- BloomFilter
 IndexBlock *-- IndexEntry
-Block ..> BlockCache : cached via
+
+note bottom of SSTable
+  BlockCache folosit extern,
+  injectat de LSMTree (nu de SSTable)
+end note
 
 @enduml

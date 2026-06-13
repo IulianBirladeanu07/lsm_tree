@@ -1,0 +1,43 @@
+@startuml lsm_05_write_path
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam roundCorner 8
+skinparam shadowing false
+
+participant Client
+participant LSMTree
+participant WAL
+participant MemTable
+participant ThreadPool
+participant SSTableBuilder
+participant LevelManager
+participant CompactionScheduler
+
+Client -> LSMTree : put(key, value)
+LSMTree -> WAL : append(key, value)
+WAL --> LSMTree : ok
+LSMTree -> MemTable : put(key, value)
+MemTable --> LSMTree : ok
+
+alt MemTable full && try_mark_flushing()
+  LSMTree -> LSMTree : flush_memtable(old_mem)
+  LSMTree -> MemTable : new MemTable (atomic store)
+  LSMTree -> ThreadPool : submit(flush task)
+
+  ThreadPool -> SSTableBuilder : add(key, value) x N
+  SSTableBuilder -> SSTableBuilder : flush_block() when full
+  SSTableBuilder --> ThreadPool : finish() → SSTable on disk
+
+  ThreadPool -> LevelManager : add_sstable(level=0, sst)
+  ThreadPool -> WAL : truncate()
+  ThreadPool -> CompactionScheduler : schedule()
+
+  alt compaction needed
+    CompactionScheduler -> ThreadPool : submit(compaction task)
+    ThreadPool -> LevelManager : replace_level(inputs, outputs, level+1)
+  end
+end
+
+LSMTree --> Client : ok
+
+@enduml

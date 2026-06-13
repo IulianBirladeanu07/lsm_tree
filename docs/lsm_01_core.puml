@@ -1,104 +1,50 @@
 @startuml lsm_01_core
-skinparam classAttributeIconSize 0
-skinparam classFontSize 12
-skinparam roundCorner 8
 skinparam shadowing false
+skinparam backgroundColor white
+skinparam defaultFontName monospace
+skinparam defaultFontSize 12
 
-class LSMTree << (F,#C4B5FD) >> {
-  + put(key: string_view, value: string_view) : void
-  + get(key: string_view) : optional<string>
-  + del(key: string_view) : void
-  + scan(start: string_view, end: string_view) : vector<KV>
-  - flush_memtable(old_mem: shared_ptr<MemTable>) : void
-  - next_sst_path() : string
-  - mem_ : atomic<shared_ptr<MemTable>>
-  - imm_ : vector<shared_ptr<MemTable>>
-  - imm_mu_ : shared_mutex
-  - sst_counter_ : atomic<uint64_t>
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor #333333
+  FontColor #333333
+  BorderThickness 1.5
 }
 
-struct KV {
-  + key : string
-  + value : string
+skinparam package {
+  BackgroundColor #F8F8F8
+  BorderColor #999999
+  FontColor #555555
+  BorderThickness 1
 }
 
-class WAL {
-  + append(key: string_view, value: string_view) : void
-  + remove(key: string_view) : void
-  + recover() : vector<LogEntry>
-  + truncate() : void
-  + sync() : void
-  + close() : void
-  - fd_ : int
-  - path_ : fs::path
-  - sync_writes_ : bool
+rectangle "**LSMTree**\nput() / get() / del() / scan()" as LSM
+
+package "Write Buffer" {
+  rectangle "WAL\n//append-only log//" as WAL
+  rectangle "MemTable\n//ConcurrentSkipList//" as MEM
 }
 
-struct LogEntry {
-  + key : string
-  + value : string
-  + is_delete : bool
+package "Disk Storage" {
+  rectangle "LevelManager\n//L0 → L6//" as LM
+  rectangle "SSTable\n//immutable sorted file//" as SST
+  rectangle "BloomFilter\n//per SSTable//" as BF
+  rectangle "BlockCache\n//LRU, 8MB//" as BC
 }
 
-class MemTable {
-  + put(key: string_view, value: string_view) : void
-  + get(key: string_view) : optional<string>
-  + contains(key: string_view) : bool
-  + is_full() : bool
-  + is_mutable() : bool
-  + try_mark_flushing() : bool
-  + iterator() : Iterator
-  + iiterator() : unique_ptr<IIterator>
-  - size_ : atomic<size_t>
-  - capacity_ : size_t
-  - writable_ : atomic<bool>
-  - flushing_ : atomic<bool>
+package "Background" {
+  rectangle "CompactionScheduler\n//Leveled | Tiered//" as CS
+  rectangle "ThreadPool" as TP
 }
 
-class ConcurrentSkipList {
-  + put(key: string_view, value: string_view) : optional<string>
-  + get(key: string_view) : optional<string>
-  + contains(key: string_view) : bool
-  + begin() : Iterator
-  + seek(key: string_view) : Iterator
-  + size() : size_t
-  - head_ : atomic<Node*>
-  - height_ : atomic<int>
-  - elements_ : atomic<int>
-}
-
-class LevelManager {
-  + add_sstable(level: int, sst: shared_ptr<SSTable>) : void
-  + replace_level(inputs, outputs, output_level: int) : void
-  + get_level(level: int) : vector<shared_ptr<SSTable>>
-  + num_levels() : int
-  - levels_ : vector<vector<shared_ptr<SSTable>>>
-  - mutex_ : shared_mutex
-}
-
-class LSMOptions {
-  + memtable_size : size_t
-  + block_cache_size : size_t
-  + num_levels : int
-  + compaction_threads : int
-  + sync_writes : bool
-  + bloom_fpr : double
-  + block_size : size_t
-  + compaction_style : CompactionStyle
-}
-
-enum CompactionStyle {
-  Leveled
-  Tiered
-}
-
-LSMTree *-- WAL
-LSMTree *-- MemTable
-LSMTree *-- LevelManager
-LSMTree ..> LSMOptions
-LSMTree ..> KV
-WAL ..> LogEntry
-MemTable *-- ConcurrentSkipList
-LSMOptions ..> CompactionStyle
+LSM -down-> WAL : "1. append"
+LSM -down-> MEM : "2. insert"
+LSM -right-> LM : "get / scan"
+MEM -right-> LM : "flush → L0"
+LM -down-> SST
+SST -right-> BF
+SST -down-> BC
+LSM -left-> CS : "schedule()"
+CS -down-> TP
 
 @enduml
