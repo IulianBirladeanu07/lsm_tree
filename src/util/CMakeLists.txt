@@ -3,3 +3,4 @@ add_library(lsm_util
     crc32.cpp
 )
 target_include_directories(lsm_util PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_compile_options(lsm_util PRIVATE -msse4.2)

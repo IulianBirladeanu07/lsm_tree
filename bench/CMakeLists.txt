@@ -16,3 +16,13 @@ add_executable(lsm_bench main.cpp)
 target_include_directories(lsm_bench PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(lsm_bench lsm_core sqlite3_bundled)
 target_compile_options(lsm_bench PRIVATE -O2 -msse4.2)
+
+add_executable(demo demo.cpp)
+target_include_directories(demo PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(demo lsm_core)
+target_compile_options(demo PRIVATE -O2 -msse4.2)
+
+add_executable(demo_recovery demo_recovery.cpp)
+target_include_directories(demo_recovery PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(demo_recovery lsm_core)
+target_compile_options(demo_recovery PRIVATE -O2 -msse4.2)
