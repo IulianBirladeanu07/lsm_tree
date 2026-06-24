@@ -18,45 +18,46 @@ namespace color {
 
 static void separator(const char* title) {
     std::cout << "\n" << color::bold << color::cyan
-              << "─── " << title << " ───"
+              << "--- " << title << " ---"
               << color::reset << "\n";
 }
 
 static void ok(const std::string& key, const std::string& val) {
-    std::cout << color::green << "  ✓ " << color::reset
+    std::cout << color::green << "  [OK]  " << color::reset
               << color::white << key << color::reset
-              << " → "
+              << " -> "
               << color::green << val << color::reset << "\n";
 }
 
 static void not_found(const std::string& key) {
-    std::cout << color::red << "  X " << color::reset
+    std::cout << color::red << "  [--]  " << color::reset
               << color::white << key << color::reset
-              << " → "
-              << color::red << "NOT FOUND — DATE PIERDUTE!" << color::reset << "\n";
+              << " -> "
+              << color::red << "NOT FOUND -- DATE PIERDUTE!" << color::reset << "\n";
 }
 
 static void put_log(const std::string& key, const std::string& val) {
-    std::cout << color::magenta << "  ↓ " << color::reset
-              << "put(" << color::white << key << color::reset
-              << ", " << color::green << val << color::reset << ")\n";
+    std::cout << color::magenta << "  [PUT] " << color::reset
+              << color::white << key << color::reset
+              << " -> "
+              << color::green << val << color::reset << "\n";
 }
 
 static const fs::path DB_PATH = "/tmp/demo_recovery_db";
 
 static void phase_write() {
     std::cout << color::bold << color::cyan
-              << "\n╔══════════════════════════════════════════╗"
-              << "\n║   LSM Tree — Recovery Demo  [FAZA 1/2]  ║"
-              << "\n║         Scriem date + simulam crash      ║"
-              << "\n╚══════════════════════════════════════════╝"
+              << "\n+==========================================+"
+              << "\n|  LSM Tree -- Recovery Demo  [FAZA 1/2]  |"
+              << "\n|        Scriem date + simulam crash       |"
+              << "\n+==========================================+"
               << color::reset << "\n";
 
     lsm::LSMOptions opts;
     opts.memtable_size = 64 * 1024 * 1024;
     lsm::LSMTree tree(DB_PATH, opts);
 
-    separator("PUT — scriem 6 chei (raman doar in WAL + MemTable)");
+    separator("PUT -- scriem 6 chei (raman doar in WAL + MemTable)");
     const char* keys[] = {"alfa", "beta", "gamma", "delta", "epsilon", "zeta"};
     const char* vals[] = {"1111", "2222", "3333",  "4444",  "5555",    "6666"};
     for (int i = 0; i < 6; i++) {
@@ -65,10 +66,10 @@ static void phase_write() {
     }
 
     std::cout << "\n" << color::yellow << color::bold
-              << "  MemTable-ul NU a atins pragul de flush (64MB)."
-              << "\n  Datele exista doar in WAL pe disc si in RAM."
-              << "\n  Simulam crash cu quick_exit() — destructorul nu se apeleaza,"
-              << "\n  niciun SSTable nu e scris."
+              << "  MemTable-ul NU a atins pragul de flush (64MB).\n"
+              << "  Datele exista doar in WAL pe disc si in RAM.\n"
+              << "  Simulam crash cu quick_exit() -- destructorul nu se apeleaza,\n"
+              << "  niciun SSTable nu e scris."
               << color::reset << "\n\n";
 
     std::quick_exit(0);
@@ -76,10 +77,10 @@ static void phase_write() {
 
 static void phase_recover() {
     std::cout << color::bold << color::cyan
-              << "\n╔══════════════════════════════════════════╗"
-              << "\n║   LSM Tree — Recovery Demo  [FAZA 2/2]   ║"
-              << "\n║         Repornire — recovery din WAL     ║"
-              << "\n╚══════════════════════════════════════════╝"
+              << "\n+==========================================+"
+              << "\n|  LSM Tree -- Recovery Demo  [FAZA 2/2]  |"
+              << "\n|        Repornire -- recovery din WAL     |"
+              << "\n+==========================================+"
               << color::reset << "\n";
 
     separator("Fisiere pe disc inainte de recovery");
@@ -89,16 +90,16 @@ static void phase_recover() {
                   << color::reset << "  (" << e.file_size() << " bytes)\n";
 
     std::cout << "\n  " << color::cyan
-              << "Niciun SSTable — datele sunt doar in WAL."
+              << "Niciun SSTable -- datele sunt doar in WAL."
               << color::reset << "\n";
 
     std::cout << "\n  " << color::cyan << "WAL hex dump:" << color::reset << "\n";
     (void)std::system("xxd /tmp/demo_recovery_db/wal.log | head -5");
 
-    separator("Construim LSMTree — WAL recovery automat la startup");
+    separator("Construim LSMTree -- WAL recovery automat la startup");
     std::cout << "  " << color::yellow
-              << "Citim WAL, verificam CRC32c per inregistrare,"
-              << "\n  reaplicam operatiile in MemTable..."
+              << "Citim WAL, verificam CRC32c per inregistrare,\n"
+              << "  reaplicam operatiile in MemTable..."
               << color::reset << "\n";
 
     lsm::LSMOptions opts;
